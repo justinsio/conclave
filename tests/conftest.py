@@ -7,6 +7,7 @@ Requires a local Postgres instance and TEST_DATABASE_URL in .env:
 """
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import os
 from pathlib import Path
@@ -14,7 +15,11 @@ from pathlib import Path
 import asyncpg
 import pytest
 import pytest_asyncio
+from dotenv import load_dotenv
 from httpx import ASGITransport, AsyncClient
+
+# Load .env before anything reads os.environ
+load_dotenv()
 
 # Point to test DB before importing app modules that read settings at import time
 os.environ.setdefault("DATABASE_URL", os.environ.get("TEST_DATABASE_URL", ""))
@@ -43,20 +48,31 @@ async def _truncate_tables(conn: asyncpg.Connection) -> None:
     )
 
 
-@pytest_asyncio.fixture(scope="session")
+@pytest.fixture(scope="session", autouse=True)
+def run_migrations():
+    """Run migrations once per session using asyncio.run() — no loop conflict."""
+    async def _migrate():
+        conn = await asyncpg.connect(TEST_DB_URL)
+        try:
+            await _apply_migrations(conn)
+        finally:
+            await conn.close()
+
+    asyncio.run(_migrate())
+
+
+@pytest_asyncio.fixture
 async def db_pool():
+    """Function-scoped pool — lives on the same event loop as all other fixtures."""
     pool = await asyncpg.create_pool(TEST_DB_URL, min_size=1, max_size=5)
-    async with pool.acquire() as conn:
-        await _apply_migrations(conn)
     yield pool
     await pool.close()
 
 
-@pytest_asyncio.fixture(autouse=True)
+@pytest_asyncio.fixture
 async def clean_db(db_pool):
     async with db_pool.acquire() as conn:
         await _truncate_tables(conn)
-    # Wire the app to use the test pool
     await init_pool(TEST_DB_URL)
     yield
     await close_pool()

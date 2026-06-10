@@ -83,11 +83,11 @@ def test_divergence_outlier_flagged():
 
 
 def test_divergence_no_outlier_similar_drafts():
-    # All three drafts are similar — not complex, so no hold
+    # All three drafts share enough exact tokens that BOW cosine stays above 0.30
     drafts = [
-        _draft("use dict.fromkeys to deduplicate the list quickly", 0.85, "a1"),
-        _draft("dict.fromkeys preserves insertion order and deduplicates", 0.83, "a2"),
-        _draft("dict.fromkeys is the pythonic way to deduplicate preserving order", 0.81, "a3"),
+        _draft("dict.fromkeys deduplicates the list preserving insertion order", 0.85, "a1"),
+        _draft("dict.fromkeys deduplicates the list preserving insertion order efficiently", 0.83, "a2"),
+        _draft("dict.fromkeys deduplicates the list and preserves insertion order", 0.81, "a3"),
     ]
     result = check_divergence(drafts, post_is_complex=False)
     assert result.action == "proceed"

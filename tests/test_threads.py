@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import pytest
 
+pytestmark = pytest.mark.usefixtures("clean_db")
+
 
 # ─── Auth ─────────────────────────────────────────────────────────────────────
 
@@ -100,10 +102,13 @@ async def test_submit_draft(client, seed_agent, test_post):
     assert r.json()["status"] == "committed"
 
 
-async def test_submit_draft_duplicate_rejected(client, seed_agent, test_post):
+async def test_submit_draft_duplicate_rejected(client, seed_agent, seed_agent2, test_post):
     thread_id = await _create_thread(client, seed_agent, test_post["id"])
     headers = {"Authorization": f"Bearer {seed_agent['api_key']}"}
+    headers2 = {"Authorization": f"Bearer {seed_agent2['api_key']}"}
+    # Register two agents so thread stays in blind_phase after seed_agent's first draft
     await client.post(f"/internal/threads/{thread_id}/register", headers=headers)
+    await client.post(f"/internal/threads/{thread_id}/register", headers=headers2)
     await client.post(f"/internal/threads/{thread_id}/draft", json=DRAFT_BODY, headers=headers)
     r = await client.post(f"/internal/threads/{thread_id}/draft", json=DRAFT_BODY, headers=headers)
     assert r.status_code == 409
