@@ -1,2 +1,143 @@
-from fastapi import APIRouter
+from __future__ import annotations
+from datetime import datetime, timedelta, timezone
+from uuid import UUID
+
+import asyncpg
+from fastapi import APIRouter, Depends, HTTPException
+
+from app.auth import require_admin
+from app.database import get_pool
+from app.models import (
+    BanRequest, BanResponse,
+    ModerationQueueItem, ModerationQueueResponse,
+    ModerationResolveRequest, ModerationResolveResponse,
+    RestoreResponse,
+)
+
 router = APIRouter(prefix="/v1/admin", tags=["admin"])
+
+
+@router.get("/moderation/queue", response_model=ModerationQueueResponse)
+async def moderation_queue(
+    _: None = Depends(require_admin),
+    pool: asyncpg.Pool = Depends(get_pool),
+):
+    rows = await pool.fetch(
+        """SELECT id, type, target_id, target_preview, reason, flagged_at, escalated_by
+             FROM moderation_queue
+            WHERE resolved = FALSE
+            ORDER BY flagged_at DESC""",
+    )
+    items = [ModerationQueueItem(**dict(r)) for r in rows]
+    return ModerationQueueResponse(data=items, count=len(items))
+
+
+@router.post("/moderation/{escalation_id}/resolve", response_model=ModerationResolveResponse)
+async def resolve_moderation(
+    escalation_id: UUID,
+    body: ModerationResolveRequest,
+    _: None = Depends(require_admin),
+    pool: asyncpg.Pool = Depends(get_pool),
+):
+    item = await pool.fetchrow(
+        "SELECT id, target_id, target_type FROM moderation_queue WHERE id = $1 AND NOT resolved",
+        escalation_id,
+    )
+    if not item:
+        raise HTTPException(404, "Escalation not found or already resolved")
+
+    now = datetime.now(timezone.utc)
+    await pool.execute(
+        """UPDATE moderation_queue
+              SET resolved = TRUE, resolved_at = $1, resolved_by = 'admin',
+                  action_taken = $2, notes = $3
+            WHERE id = $4""",
+        now, body.action, body.notes, escalation_id,
+    )
+
+    if body.action == "delete" and item["target_type"] == "answer":
+        await pool.execute("UPDATE answers SET deleted = TRUE WHERE id = $1", item["target_id"])
+    elif body.action == "delete" and item["target_type"] == "post":
+        await pool.execute("UPDATE posts SET status = 'deleted' WHERE id = $1", item["target_id"])
+    elif body.action == "shadow_ban":
+        await pool.execute("UPDATE agents SET is_shadow_banned = TRUE WHERE id = $1", item["target_id"])
+
+    return ModerationResolveResponse(
+        escalation_id=escalation_id, action=body.action, resolved_at=now
+    )
+
+
+@router.get("/agents/{agent_id}/log")
+async def agent_log(
+    agent_id: UUID,
+    _: None = Depends(require_admin),
+    pool: asyncpg.Pool = Depends(get_pool),
+):
+    agent = await pool.fetchrow(
+        "SELECT id, name, plan, is_shadow_banned FROM agents WHERE id = $1",
+        agent_id,
+    )
+    if not agent:
+        raise HTTPException(404, "Agent not found")
+
+    ban = await pool.fetchrow(
+        """SELECT expires_at FROM bans
+            WHERE agent_id = $1
+              AND (expires_at IS NULL OR expires_at > NOW())
+            ORDER BY created_at DESC LIMIT 1""",
+        agent_id,
+    )
+
+    log_rows = await pool.fetch(
+        "SELECT action, metadata, created_at FROM audit_log WHERE agent_id = $1 ORDER BY created_at DESC LIMIT 100",
+        agent_id,
+    )
+
+    return {
+        "agent_id": str(agent_id),
+        "name": agent["name"],
+        "plan": agent["plan"],
+        "is_shadow_banned": agent["is_shadow_banned"],
+        "banned_until": ban["expires_at"].isoformat() if ban else None,
+        "log": [
+            {"action": r["action"], "metadata": r["metadata"], "created_at": r["created_at"].isoformat()}
+            for r in log_rows
+        ],
+    }
+
+
+@router.post("/agents/{agent_id}/ban", response_model=BanResponse)
+async def ban_agent(
+    agent_id: UUID,
+    body: BanRequest,
+    _: None = Depends(require_admin),
+    pool: asyncpg.Pool = Depends(get_pool),
+):
+    agent = await pool.fetchrow("SELECT id FROM agents WHERE id = $1", agent_id)
+    if not agent:
+        raise HTTPException(404, "Agent not found")
+
+    expires_at = None
+    if body.duration_hours:
+        expires_at = datetime.now(timezone.utc) + timedelta(hours=body.duration_hours)
+
+    await pool.execute(
+        "INSERT INTO bans (agent_id, reason, expires_at, issued_by) VALUES ($1, $2, $3, 'admin')",
+        agent_id, body.reason, expires_at,
+    )
+    return BanResponse(agent_id=agent_id, banned_until=expires_at, owner_notified=False)
+
+
+@router.post("/agents/{agent_id}/restore", response_model=RestoreResponse)
+async def restore_agent(
+    agent_id: UUID,
+    _: None = Depends(require_admin),
+    pool: asyncpg.Pool = Depends(get_pool),
+):
+    agent = await pool.fetchrow("SELECT id FROM agents WHERE id = $1", agent_id)
+    if not agent:
+        raise HTTPException(404, "Agent not found")
+
+    now = datetime.now(timezone.utc)
+    await pool.execute("UPDATE agents SET is_shadow_banned = FALSE WHERE id = $1", agent_id)
+    return RestoreResponse(agent_id=agent_id, is_shadow_banned=False, restored_at=now)
