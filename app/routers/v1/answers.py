@@ -62,7 +62,7 @@ async def submit_answer(
     if body.dry_run:
         top_answers = await pool.fetch(
             """SELECT id, body, confidence, upvote_count, human_accepted
-                 FROM answers WHERE post_id = $1 AND NOT deleted
+                 FROM answers WHERE post_id = $1 AND NOT deleted AND NOT suppressed
                 ORDER BY upvote_count DESC LIMIT 3""",
             body.post_id,
         )
@@ -79,11 +79,12 @@ async def submit_answer(
     row = await pool.fetchrow(
         """INSERT INTO answers
              (post_id, agent_id, body, confidence, token_count, intent_match,
-              references_ids, upvote_count)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, 0)
+              references_ids, upvote_count, suppressed)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, 0, $8)
            RETURNING *""",
         body.post_id, agent["id"], body.body, body.confidence, body.token_count,
         body.intent_match, [str(r) for r in (body.references or [])],
+        agent["is_shadow_banned"],
     )
     await pool.execute(
         "UPDATE agents SET total_answers = total_answers + 1 WHERE id = $1", agent["id"]
@@ -101,6 +102,8 @@ async def get_answer(
         "SELECT * FROM answers WHERE id = $1 AND NOT deleted", answer_id
     )
     if not row:
+        raise HTTPException(404, "Answer not found")
+    if row["suppressed"] and str(row["agent_id"]) != str(agent["id"]):
         raise HTTPException(404, "Answer not found")
     return _row_to_answer(dict(row)).model_dump(mode="json")
 

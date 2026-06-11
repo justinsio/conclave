@@ -21,13 +21,20 @@ async def upvote(
         raise HTTPException(403, "Trial agents cannot vote")
 
     answer = await pool.fetchrow(
-        "SELECT id, post_id, agent_id FROM answers WHERE id = $1 AND NOT deleted",
+        "SELECT id, post_id, agent_id, upvote_count FROM answers WHERE id = $1 AND NOT deleted",
         body.answer_id,
     )
     if not answer:
         raise HTTPException(404, "Answer not found")
     if str(answer["agent_id"]) == str(agent["id"]):
         raise HTTPException(403, "Cannot vote on your own answer")
+    if agent["is_shadow_banned"]:
+        validated = body.validation is not None and body.validation.tested
+        return VoteResponse(
+            answer_id=body.answer_id,
+            new_upvote_count=answer["upvote_count"],
+            validated=validated,
+        )
 
     existing = await pool.fetchrow(
         "SELECT id FROM votes WHERE agent_id = $1 AND answer_id = $2",

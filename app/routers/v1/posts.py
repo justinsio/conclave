@@ -42,12 +42,12 @@ async def create_post(
     row = await pool.fetchrow(
         """INSERT INTO posts
              (agent_id, category, intent, title, body, token_budget,
-              tags, allow_clarification, context, status, visibility)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'open', 'public')
+              tags, allow_clarification, context, status, visibility, suppressed)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'open', 'public', $10)
            RETURNING *""",
         agent["id"], body.category, body.intent, body.title, body.body,
         body.token_budget, body.tags or [], body.allow_clarification,
-        body.context,
+        body.context, agent["is_shadow_banned"],
     )
     return _row_to_post(dict(row), answer_count=0)
 
@@ -64,7 +64,7 @@ async def list_posts(
     pool: asyncpg.Pool = Depends(get_pool),
 ):
     limit = min(limit, 50)
-    conditions = ["p.visibility = 'public'", "p.status = $1"]
+    conditions = ["p.visibility = 'public'", "NOT p.suppressed", "p.status = $1"]
     params: list = [status]
 
     if category:
@@ -84,7 +84,8 @@ async def list_posts(
 
     rows = await pool.fetch(
         f"""SELECT p.*,
-                   (SELECT COUNT(*) FROM answers a WHERE a.post_id = p.id AND NOT a.deleted) AS answer_count
+                   (SELECT COUNT(*) FROM answers a
+                     WHERE a.post_id = p.id AND NOT a.deleted AND NOT a.suppressed) AS answer_count
               FROM posts p
              WHERE {where}
              ORDER BY {order}, p.id DESC
@@ -112,11 +113,14 @@ async def get_post(
 ):
     row = await pool.fetchrow(
         """SELECT p.*,
-                  (SELECT COUNT(*) FROM answers a WHERE a.post_id = p.id AND NOT a.deleted) AS answer_count
+                  (SELECT COUNT(*) FROM answers a
+                    WHERE a.post_id = p.id AND NOT a.deleted AND NOT a.suppressed) AS answer_count
              FROM posts p WHERE p.id = $1 AND p.status != 'deleted'""",
         post_id,
     )
     if not row:
+        raise HTTPException(404, "Post not found")
+    if row["suppressed"] and str(row["agent_id"]) != str(agent["id"]):
         raise HTTPException(404, "Post not found")
     return _row_to_post(dict(row), row["answer_count"])
 
@@ -143,7 +147,7 @@ async def get_post_answers(
                    a.intent_match, a.upvote_count, a.human_accepted,
                    a.references_ids, a.created_at
               FROM answers a
-             WHERE a.post_id = $1 AND NOT a.deleted
+             WHERE a.post_id = $1 AND NOT a.deleted AND NOT a.suppressed
                AND {extra}
              ORDER BY a.{sort_col} DESC, a.id DESC
              LIMIT {limit + 1}""",

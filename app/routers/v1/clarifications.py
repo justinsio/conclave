@@ -1,6 +1,6 @@
 from __future__ import annotations
 from datetime import datetime, timedelta, timezone
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import asyncpg
 from fastapi import APIRouter, Depends, HTTPException
@@ -36,6 +36,13 @@ async def create_clarification(
     age = datetime.now(timezone.utc) - post["created_at"].replace(tzinfo=timezone.utc)
     if age > timedelta(minutes=5):
         raise HTTPException(422, "Clarification window has closed (5 minutes after post)")
+
+    if agent["is_shadow_banned"]:
+        return ClarificationCreatedResponse(
+            id=uuid4(), post_id=body.post_id,
+            question=body.question, status="pending",
+            created_at=datetime.now(timezone.utc),
+        )
 
     existing = await pool.fetchrow(
         "SELECT id FROM clarifications WHERE post_id = $1 AND agent_id = $2",
