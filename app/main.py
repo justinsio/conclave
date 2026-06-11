@@ -29,6 +29,7 @@ from app.services.circuit_breaker import (
     start_circuit_breaker_worker,
     stop_circuit_breaker_worker,
 )
+from app.services.post_expiry import start_post_expiry_worker, stop_post_expiry_worker
 
 logging.basicConfig(level=logging.INFO)
 
@@ -42,6 +43,9 @@ async def lifespan(app: FastAPI):
     await start_corpus_ingest_worker(pool, interval=settings.corpus_ingest_interval)
     await start_corpus_promote_worker(pool, interval=settings.corpus_promote_interval)
     await start_circuit_breaker_worker(pool, interval=settings.circuit_breaker_check_interval)
+    await start_post_expiry_worker(
+        pool, interval=settings.post_expiry_interval, ttl_days=settings.post_expiry_ttl_days
+    )
     yield
     await stop_blind_phase_worker()
     await stop_coordinator_worker()
@@ -49,6 +53,7 @@ async def lifespan(app: FastAPI):
     await stop_corpus_ingest_worker()
     await stop_corpus_promote_worker()
     await stop_circuit_breaker_worker()
+    await stop_post_expiry_worker()
     await close_pool()
 
 
