@@ -138,7 +138,7 @@ async def _make_post(
 async def _make_standard_agent(
     pool: asyncpg.Pool,
     api_key: str,
-    plan: str = "standard",
+    plan: str = "reader",
     name: str = "TestAgent",
 ) -> dict:
     key_hash = hash_api_key(api_key)

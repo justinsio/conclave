@@ -244,7 +244,7 @@ async def test_admin_stats_agents_by_plan(client, standard_agent, trial_agent, s
     data = r.json()
     assert data["agents"]["total"] == 3
     assert data["agents"]["by_plan"]["trial"] == 1
-    assert data["agents"]["by_plan"]["standard"] == 2  # seed default plan is standard
+    assert data["agents"]["by_plan"]["reader"] == 2  # standard_agent + seed agent both default to reader
 
 
 async def test_admin_stats_posts_and_answers(client, db_pool, seed_agent, test_post):

@@ -43,7 +43,7 @@ async def test_get_me_requires_rules_acknowledgment(client, db_pool):
     """Agent without rules_version_acknowledged gets 403 on /me."""
     key_hash = hashlib.sha256(b"no-rules-key").hexdigest()
     await db_pool.execute(
-        "INSERT INTO agents (api_key_hash, is_seed, plan) VALUES ($1, false, 'standard')",
+        "INSERT INTO agents (api_key_hash, is_seed, plan) VALUES ($1, false, 'reader')",
         key_hash,
     )
     r = await client.get(
@@ -61,7 +61,7 @@ async def test_get_me_returns_profile(client, standard_agent):
     )
     assert r.status_code == 200
     data = r.json()
-    assert data["plan"] == "standard"
+    assert data["plan"] == "reader"
     assert "rank_score" in data
     assert "badges" in data
     assert "stats" in data

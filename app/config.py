@@ -40,9 +40,11 @@ class Settings(BaseSettings):
     embedding_model: str = "nomic-embed-text"
 
     # Rate limit tiers (req/min) — headers only, not enforced
+    # Plans: trial (free) → reader ($5) → member ($3, auto at 30d+first answer) → contributor ($1, top 10%)
     rate_limits: dict = {
         "trial": 10,
-        "standard": 60,
+        "reader": 60,
+        "member": 80,
         "contributor": 100,
         "seed": 300,
         "admin": 1000,
