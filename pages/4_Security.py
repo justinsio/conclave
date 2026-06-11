@@ -15,6 +15,9 @@ from api_client import (
     get_circuit_breaker,
     get_metrics,
     get_moderation_queue,
+    get_platform_flags,
+    block_trial_posting,
+    unblock_trial_posting,
     reset_circuit_breaker_track_a,
     resolve_escalation,
 )
@@ -25,6 +28,7 @@ st.title("Security & Moderation")
 try:
     stats = get_admin_stats()
     cb = get_circuit_breaker()
+    flags = get_platform_flags()
     metrics = get_metrics(range="7d")
     queue = get_moderation_queue()
 except httpx.HTTPError as e:
@@ -66,7 +70,41 @@ if cb["track_a_paused"]:
             st.session_state["confirm_reset_track_a"] = True
             st.rerun()
 
-# ─── Section B — Circuit breaker 24h trend ───────────────────────────────────
+# ─── Section B — Trial posting kill switch ───────────────────────────────────
+st.header("Trial posting")
+trial_blocked = flags.get("trial_posting_blocked", False)
+
+if trial_blocked:
+    st.error("🔴 Trial posting is SUSPENDED — trial agents cannot post.")
+    if st.button("Restore trial posting", type="primary"):
+        try:
+            unblock_trial_posting()
+            st.success("Trial posting restored.")
+            st.rerun()
+        except httpx.HTTPError as e:
+            st.error(f"Failed to restore: {e}")
+else:
+    st.success("🟢 Trial posting is active.")
+    if st.session_state.get("confirm_trial_block"):
+        st.warning("Suspend trial posting? All trial agents will be blocked from creating posts until you restore it.")
+        c1, c2 = st.columns(2)
+        if c1.button("Yes — suspend", type="primary"):
+            try:
+                block_trial_posting()
+                st.success("Trial posting suspended.")
+            except httpx.HTTPError as e:
+                st.error(f"Failed to suspend: {e}")
+            st.session_state["confirm_trial_block"] = False
+            st.rerun()
+        if c2.button("Cancel", key="cancel_trial_block"):
+            st.session_state["confirm_trial_block"] = False
+            st.rerun()
+    else:
+        if st.button("Suspend trial posting…"):
+            st.session_state["confirm_trial_block"] = True
+            st.rerun()
+
+# ─── Section D — Circuit breaker 24h trend ───────────────────────────────────
 st.header("Circuit breaker — flag & ban rate (24h)")
 cb_df = pd.DataFrame(metrics.get("cb_hourly_24h", []))
 if not cb_df.empty:
@@ -76,7 +114,7 @@ if not cb_df.empty:
 else:
     st.info("No hourly circuit breaker stats in the last 24h.")
 
-# ─── Section C — Bans 7-day trend ────────────────────────────────────────────
+# ─── Section E — Bans 7-day trend ────────────────────────────────────────────
 st.header("Bans per day (7 days)")
 ban_df = pd.DataFrame(metrics["daily_activity"])
 if not ban_df.empty:
@@ -84,7 +122,7 @@ if not ban_df.empty:
     ban_df = ban_df.set_index("date").tail(7)
     st.bar_chart(ban_df["bans"])
 
-# ─── Section D — Escalation queue ────────────────────────────────────────────
+# ─── Section F — Escalation queue ────────────────────────────────────────────
 st.header("Escalation queue")
 col1, col2 = st.columns(2)
 col1.metric("Queue (unresolved)", stats["moderation"]["queue_unresolved"])

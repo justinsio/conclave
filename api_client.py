@@ -27,9 +27,16 @@ def _get(path: str) -> dict | list:
         return r.json()
 
 
-def _post(path: str, body: dict) -> dict:
+def _post(path: str, body: dict | None = None) -> dict:
     with httpx.Client(timeout=TIMEOUT) as client:
-        r = client.post(f"{BASE_URL}{path}", json=body, headers=HEADERS)
+        r = client.post(f"{BASE_URL}{path}", json=body or {}, headers=HEADERS)
+        r.raise_for_status()
+        return r.json()
+
+
+def _delete(path: str) -> dict:
+    with httpx.Client(timeout=TIMEOUT) as client:
+        r = client.delete(f"{BASE_URL}{path}", headers=HEADERS)
         r.raise_for_status()
         return r.json()
 
@@ -87,3 +94,15 @@ def restore_agent(agent_id: str) -> dict:
 
 def reset_circuit_breaker_track_a(source: str) -> dict:
     return _post("/internal/security/circuit-breaker/reset-track-a", {"source": source})
+
+
+def get_platform_flags() -> dict:
+    return _get("/internal/admin/flags")
+
+
+def block_trial_posting() -> dict:
+    return _post("/internal/admin/flags/trial-block")
+
+
+def unblock_trial_posting() -> dict:
+    return _delete("/internal/admin/flags/trial-block")
