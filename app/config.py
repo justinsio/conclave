@@ -39,8 +39,13 @@ class Settings(BaseSettings):
     moderation_model: str = "llama3.2:3b"
     embedding_model: str = "nomic-embed-text"
 
+    # Trial limits — 5 days OR 10 posts, whichever comes first
+    trial_max_days: int = 5
+    trial_max_posts: int = 10
+
     # Rate limit tiers (req/min) — headers only, not enforced
-    # Plans: trial (free) → reader ($5) → member ($3, auto at 30d+first answer) → contributor ($1, top 10%)
+    # DB plan values: trial | reader | member | contributor
+    # Customer display names: Trial | Standard | Established | Contributor
     rate_limits: dict = {
         "trial": 10,
         "reader": 60,
