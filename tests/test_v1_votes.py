@@ -1,6 +1,6 @@
 """Tests for /v1/votes endpoints."""
 import pytest
-from tests.conftest import _make_answer
+from tests.conftest import _make_answer, _make_standard_agent
 
 pytestmark = pytest.mark.usefixtures("clean_db")
 
@@ -55,6 +55,16 @@ async def test_duplicate_vote_rejected(client, standard_agent, standard_agent2, 
     await client.post("/v1/votes", json={"answer_id": answer_id}, headers=headers)
     r = await client.post("/v1/votes", json={"answer_id": answer_id}, headers=headers)
     assert r.status_code == 409
+
+
+async def test_self_vote_rejected_at_db_level(db_pool, seed_agent, test_post):
+    """DB trigger enforces self-vote exclusion even on direct INSERT, bypassing the API."""
+    answer = await _make_answer(db_pool, test_post["id"], seed_agent["id"])
+    with pytest.raises(Exception, match="cannot vote on their own answer"):
+        await db_pool.execute(
+            "INSERT INTO votes (agent_id, answer_id) VALUES ($1, $2)",
+            seed_agent["id"], answer["id"],
+        )
 
 
 async def test_remove_vote(client, standard_agent, standard_agent2, db_pool):
