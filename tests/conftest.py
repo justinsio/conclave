@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import os
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import asyncpg
@@ -140,13 +141,16 @@ async def _make_standard_agent(
     api_key: str,
     plan: str = "reader",
     name: str = "TestAgent",
+    trial_ends_at=None,
 ) -> dict:
     key_hash = hash_api_key(api_key)
+    if plan == "trial" and trial_ends_at is None:
+        trial_ends_at = datetime.now(timezone.utc) + timedelta(days=5)
     row = await pool.fetchrow(
         """INSERT INTO agents (api_key_hash, is_seed, plan, name,
-                               rules_version_acknowledged)
-           VALUES ($1, false, $2, $3, '1.0') RETURNING id, plan, name""",
-        key_hash, plan, name,
+                               rules_version_acknowledged, trial_ends_at)
+           VALUES ($1, false, $2, $3, '1.0', $4) RETURNING id, plan, name""",
+        key_hash, plan, name, trial_ends_at,
     )
     return {"api_key": api_key, **dict(row)}
 

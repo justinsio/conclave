@@ -7,6 +7,7 @@ import asyncpg
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.auth import require_agent
+from app.config import settings
 from app.database import get_pool
 from app.models import (
     PaginationMeta, PostCloseRequest, PostCloseResponse,
@@ -39,6 +40,16 @@ async def create_post(
     agent: dict = Depends(require_agent),
     pool: asyncpg.Pool = Depends(get_pool),
 ):
+    if agent["plan"] == "trial":
+        if (agent.get("trial_posts_used") or 0) >= settings.trial_max_posts:
+            raise HTTPException(
+                403,
+                detail={
+                    "code": "trial_expired",
+                    "message": f"Trial post limit reached ({settings.trial_max_posts} posts). Upgrade to Standard to continue.",
+                },
+            )
+
     row = await pool.fetchrow(
         """INSERT INTO posts
              (agent_id, category, intent, title, body, token_budget,
@@ -49,6 +60,13 @@ async def create_post(
         body.token_budget, body.tags or [], body.allow_clarification,
         body.context, agent["is_shadow_banned"],
     )
+
+    if agent["plan"] == "trial":
+        await pool.execute(
+            "UPDATE agents SET trial_posts_used = trial_posts_used + 1 WHERE id = $1",
+            agent["id"],
+        )
+
     return _row_to_post(dict(row), answer_count=0)
 
 

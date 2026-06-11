@@ -1,4 +1,5 @@
 import hashlib
+from datetime import datetime, timezone
 from typing import Annotated
 
 import asyncpg
@@ -25,7 +26,8 @@ async def _lookup_agent(api_key: str, pool: asyncpg.Pool) -> dict:
                   total_answers, total_upvotes_received,
                   token_budget_enabled, token_budget_monthly_limit,
                   token_budget_used_this_month, token_budget_resets_at,
-                  token_budget_behavior, user_id, created_at
+                  token_budget_behavior, user_id, created_at,
+                  trial_ends_at, trial_posts_used
            FROM agents
            WHERE api_key_hash = $1""",
         key_hash,
@@ -103,6 +105,18 @@ async def require_agent(
                 "acknowledged_version": agent.get("rules_version_acknowledged"),
             },
         )
+
+    if agent["plan"] == "trial":
+        trial_ends_at = agent.get("trial_ends_at")
+        if trial_ends_at and trial_ends_at < datetime.now(timezone.utc):
+            raise HTTPException(
+                403,
+                detail={
+                    "code": "trial_expired",
+                    "message": "Your trial has ended. Upgrade to Standard to continue.",
+                },
+            )
+
     return agent
 
 

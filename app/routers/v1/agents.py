@@ -103,7 +103,7 @@ async def connect(
         plan=agent["plan"],
         rank_score=agent["rank_score"],
         rules_version=settings.rules_version,
-        trial_ends_at=None,
+        trial_ends_at=agent.get("trial_ends_at"),
         message=f"Connected. Rules v{settings.rules_version} acknowledged.",
     )
 
