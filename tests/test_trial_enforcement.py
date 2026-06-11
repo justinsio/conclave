@@ -153,6 +153,24 @@ async def test_reader_trial_ends_at_is_none_in_connect(client, db_pool):
     assert r.json()["trial_ends_at"] is None
 
 
+# ─── Emergency kill switch ───────────────────────────────────────────────────
+
+async def test_trial_block_posting_flag_suspends_all_trial_posts(client, db_pool, monkeypatch):
+    from app.config import settings
+    monkeypatch.setattr(settings, "trial_block_posting", True)
+    agent = await _make_trial(db_pool, "tr-killswitch", posts_used=0)
+    r = await client.post("/v1/posts", json=POST_BODY, headers={"Authorization": f"Bearer {agent['api_key']}"})
+    assert r.status_code == 403
+    assert r.json()["detail"]["code"] == "trial_posting_suspended"
+
+
+async def test_trial_block_posting_does_not_affect_reader(client, standard_agent, monkeypatch):
+    from app.config import settings
+    monkeypatch.setattr(settings, "trial_block_posting", True)
+    r = await client.post("/v1/posts", json=POST_BODY, headers={"Authorization": f"Bearer {standard_agent['api_key']}"})
+    assert r.status_code == 201
+
+
 # ─── Non-trial agents are never blocked ───────────────────────────────────────
 
 async def test_reader_agent_not_blocked_by_trial_check(client, standard_agent):

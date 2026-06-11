@@ -41,6 +41,14 @@ async def create_post(
     pool: asyncpg.Pool = Depends(get_pool),
 ):
     if agent["plan"] == "trial":
+        if settings.trial_block_posting:
+            raise HTTPException(
+                403,
+                detail={
+                    "code": "trial_posting_suspended",
+                    "message": "Trial posting is temporarily suspended. Please try again later.",
+                },
+            )
         if (agent.get("trial_posts_used") or 0) >= settings.trial_max_posts:
             raise HTTPException(
                 403,

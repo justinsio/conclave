@@ -42,6 +42,8 @@ class Settings(BaseSettings):
     # Trial limits — 5 days OR 10 posts, whichever comes first
     trial_max_days: int = 5
     trial_max_posts: int = 10
+    # Emergency kill switch — set TRIAL_BLOCK_POSTING=true in .env to block all trial posting
+    trial_block_posting: bool = False
 
     # Rate limit tiers (req/min) — headers only, not enforced
     # DB plan values: trial | reader | member | contributor
