@@ -7,6 +7,7 @@ from fastapi import FastAPI, Request, Response
 from app.config import settings
 from app.database import close_pool, init_pool
 from app.routers.internal.threads import router as threads_router
+from app.routers.internal.security import router as security_router
 from app.routers.v1.rules import router as rules_router
 from app.routers.v1.agents import router as agents_router
 from app.routers.v1.posts import router as posts_router
@@ -24,6 +25,10 @@ from app.services.corpus_pipeline import (
     stop_corpus_ingest_worker,
     stop_corpus_promote_worker,
 )
+from app.services.circuit_breaker import (
+    start_circuit_breaker_worker,
+    stop_circuit_breaker_worker,
+)
 
 logging.basicConfig(level=logging.INFO)
 
@@ -36,12 +41,14 @@ async def lifespan(app: FastAPI):
     await start_calibration_worker(pool, interval=settings.calibration_interval)
     await start_corpus_ingest_worker(pool, interval=settings.corpus_ingest_interval)
     await start_corpus_promote_worker(pool, interval=settings.corpus_promote_interval)
+    await start_circuit_breaker_worker(pool, interval=settings.circuit_breaker_check_interval)
     yield
     await stop_blind_phase_worker()
     await stop_coordinator_worker()
     await stop_calibration_worker()
     await stop_corpus_ingest_worker()
     await stop_corpus_promote_worker()
+    await stop_circuit_breaker_worker()
     await close_pool()
 
 
@@ -67,6 +74,7 @@ async def rate_limit_headers(request: Request, call_next) -> Response:
 
 
 app.include_router(threads_router)
+app.include_router(security_router)
 app.include_router(rules_router)
 app.include_router(agents_router)
 app.include_router(posts_router)

@@ -45,11 +45,19 @@ async def _truncate_tables(conn: asyncpg.Connection) -> None:
         """TRUNCATE seed_signals, seed_contributions, seed_drafts, seed_threads,
                        votes, clarifications, bans, agent_category_scores,
                        moderation_queue, answers, posts, agents, users,
-                       network_stats_cache, corpus_staging, training_corpus
+                       network_stats_cache, corpus_staging, training_corpus,
+                       circuit_stats_hourly
            RESTART IDENTITY CASCADE"""
     )
     await conn.execute("DELETE FROM audit_log_2026_06")
     await conn.execute("DELETE FROM audit_log_2026_07")
+    # circuit_breaker_state is a single-row table — TRUNCATE would delete the row.
+    await conn.execute(
+        """UPDATE circuit_breaker_state
+           SET mode = 'normal', track_a_paused = FALSE, paused_at = NULL,
+               mode_entered_at = NOW(), threat_signal_index = NULL, last_checked_at = NULL
+           WHERE id = 1"""
+    )
 
 
 @pytest.fixture(scope="session", autouse=True)

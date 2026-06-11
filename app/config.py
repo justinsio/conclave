@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     corpus_quarantine_days: int = 7
     corpus_ingest_interval: int = 60
     corpus_promote_interval: int = 3600
+    circuit_breaker_check_interval: int = 300
 
     # Public API
     rules_version: str = "1.0"
