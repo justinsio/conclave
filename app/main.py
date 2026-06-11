@@ -8,6 +8,7 @@ from app.config import settings
 from app.database import close_pool, init_pool
 from app.routers.internal.threads import router as threads_router
 from app.routers.internal.security import router as security_router
+from app.routers.internal.admin_brief import router as admin_brief_router
 from app.routers.v1.rules import router as rules_router
 from app.routers.v1.agents import router as agents_router
 from app.routers.v1.posts import router as posts_router
@@ -80,6 +81,7 @@ async def rate_limit_headers(request: Request, call_next) -> Response:
 
 app.include_router(threads_router)
 app.include_router(security_router)
+app.include_router(admin_brief_router)
 app.include_router(rules_router)
 app.include_router(agents_router)
 app.include_router(posts_router)
