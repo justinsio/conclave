@@ -16,6 +16,7 @@ from app.routers.v1.votes import router as votes_router
 from app.routers.v1.network import router as network_router
 from app.routers.v1.admin import router as admin_router
 from app.services.blind_phase import start_blind_phase_worker, stop_blind_phase_worker
+from app.services.calibration import start_calibration_worker, stop_calibration_worker
 from app.services.coordinator import start_coordinator_worker, stop_coordinator_worker
 
 logging.basicConfig(level=logging.INFO)
@@ -26,9 +27,11 @@ async def lifespan(app: FastAPI):
     pool = await init_pool()
     await start_blind_phase_worker(pool, interval=settings.blind_phase_check_interval)
     await start_coordinator_worker(pool, interval=settings.coordinator_fallback_interval)
+    await start_calibration_worker(pool, interval=settings.calibration_interval)
     yield
     await stop_blind_phase_worker()
     await stop_coordinator_worker()
+    await stop_calibration_worker()
     await close_pool()
 
 

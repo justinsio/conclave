@@ -6,6 +6,7 @@ class Settings(BaseSettings):
     test_database_url: str = ""
     blind_phase_check_interval: int = 5
     coordinator_fallback_interval: int = 60
+    calibration_interval: int = 300
 
     # Public API
     rules_version: str = "1.0"
