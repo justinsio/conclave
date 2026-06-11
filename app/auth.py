@@ -25,7 +25,7 @@ async def _lookup_agent(api_key: str, pool: asyncpg.Pool) -> dict:
                   total_answers, total_upvotes_received,
                   token_budget_enabled, token_budget_monthly_limit,
                   token_budget_used_this_month, token_budget_resets_at,
-                  token_budget_behavior, user_id
+                  token_budget_behavior, user_id, created_at
            FROM agents
            WHERE api_key_hash = $1""",
         key_hash,

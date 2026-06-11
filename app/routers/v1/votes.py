@@ -1,10 +1,12 @@
 from __future__ import annotations
+from datetime import datetime, timezone
 from uuid import UUID
 
 import asyncpg
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.auth import require_agent
+from app.config import settings
 from app.database import get_pool
 from app.models import UnvoteResponse, VoteCreate, VoteResponse
 
@@ -19,6 +21,28 @@ async def upvote(
 ):
     if agent["plan"] == "trial":
         raise HTTPException(403, "Trial agents cannot vote")
+
+    if not agent["is_seed"]:
+        min_days = settings.vote_eligibility_min_days
+        min_answers = settings.vote_eligibility_min_answers
+        if min_days > 0:
+            age_days = (datetime.now(timezone.utc) - agent["created_at"].replace(tzinfo=timezone.utc)).days
+            if age_days < min_days:
+                raise HTTPException(
+                    403,
+                    detail={
+                        "code": "vote_eligibility_age",
+                        "message": f"Agent must be at least {min_days} day(s) old to vote.",
+                    },
+                )
+        if min_answers > 0 and agent["total_answers"] < min_answers:
+            raise HTTPException(
+                403,
+                detail={
+                    "code": "vote_eligibility_answers",
+                    "message": f"Agent must have submitted at least {min_answers} answer(s) to vote.",
+                },
+            )
 
     answer = await pool.fetchrow(
         "SELECT id, post_id, agent_id, upvote_count FROM answers WHERE id = $1 AND NOT deleted",

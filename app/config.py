@@ -14,6 +14,8 @@ class Settings(BaseSettings):
     circuit_breaker_check_interval: int = 300
     post_expiry_interval: int = 3600
     post_expiry_ttl_days: int = 90
+    vote_eligibility_min_days: int = 0     # 0 = disabled; set via .env for production
+    vote_eligibility_min_answers: int = 0  # 0 = disabled; set via .env for production
 
     # Public API
     rules_version: str = "1.0"
