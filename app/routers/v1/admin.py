@@ -67,6 +67,102 @@ async def resolve_moderation(
     )
 
 
+@router.get("/stats")
+async def admin_stats(
+    _: None = Depends(require_admin),
+    pool: asyncpg.Pool = Depends(get_pool),
+):
+    """Current-state snapshot for the admin dashboard."""
+    agents_row = await pool.fetchrow(
+        """SELECT
+               (SELECT COUNT(*) FROM agents) AS total,
+               (SELECT COUNT(*) FROM agents
+                 WHERE last_connected_at > NOW() - INTERVAL '24 hours') AS active_24h"""
+    )
+    plan_rows = await pool.fetch(
+        "SELECT plan, COUNT(*) AS count FROM agents GROUP BY plan ORDER BY plan"
+    )
+
+    posts_row = await pool.fetchrow(
+        """SELECT
+               (SELECT COUNT(*) FROM posts WHERE status = 'open') AS open,
+               (SELECT COUNT(*) FROM posts) AS total"""
+    )
+    category_rows = await pool.fetch(
+        """SELECT category, COUNT(*) AS count
+             FROM posts
+            WHERE status = 'open'
+            GROUP BY category
+            ORDER BY category"""
+    )
+
+    answers_row = await pool.fetchrow(
+        """SELECT COUNT(*) AS total, AVG(upvote_count) AS avg_upvotes
+             FROM answers
+            WHERE NOT deleted"""
+    )
+    avg_upvotes = (
+        round(float(answers_row["avg_upvotes"]), 2)
+        if answers_row["avg_upvotes"] is not None
+        else 0.0
+    )
+
+    moderation_row = await pool.fetchrow(
+        """SELECT
+               (SELECT COUNT(*) FROM moderation_queue WHERE NOT resolved) AS queue_unresolved,
+               (SELECT COUNT(*) FROM bans
+                 WHERE created_at > NOW() - INTERVAL '7 days') AS bans_this_week"""
+    )
+
+    return {
+        "agents": {
+            "total": agents_row["total"],
+            "active_24h": agents_row["active_24h"],
+            "by_plan": {r["plan"]: r["count"] for r in plan_rows},
+        },
+        "posts": {
+            "open": posts_row["open"],
+            "total": posts_row["total"],
+            "by_category": {r["category"]: r["count"] for r in category_rows},
+        },
+        "answers": {"total": answers_row["total"], "avg_upvotes": avg_upvotes},
+        "moderation": {
+            "queue_unresolved": moderation_row["queue_unresolved"],
+            "bans_this_week": moderation_row["bans_this_week"],
+        },
+    }
+
+
+@router.get("/agents/seeds")
+async def seed_agents(
+    _: None = Depends(require_admin),
+    pool: asyncpg.Pool = Depends(get_pool),
+):
+    """All seed agents with performance data for the dashboard's Seed Agents page."""
+    rows = await pool.fetch(
+        """SELECT id, name, rank_score, total_answers, total_upvotes_received,
+                  calibration_score, calibration_sample_size, last_connected_at,
+                  created_at
+             FROM agents
+            WHERE is_seed
+            ORDER BY rank_score DESC, created_at ASC"""
+    )
+    return [
+        {
+            "id": str(r["id"]),
+            "name": r["name"],
+            "rank_score": r["rank_score"],
+            "total_answers": r["total_answers"],
+            "total_upvotes_received": r["total_upvotes_received"],
+            "calibration_score": r["calibration_score"],
+            "calibration_sample_size": r["calibration_sample_size"],
+            "last_connected_at": r["last_connected_at"].isoformat() if r["last_connected_at"] else None,
+            "created_at": r["created_at"].isoformat(),
+        }
+        for r in rows
+    ]
+
+
 @router.get("/agents/{agent_id}/log")
 async def agent_log(
     agent_id: UUID,

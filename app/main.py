@@ -9,6 +9,7 @@ from app.database import close_pool, init_pool
 from app.routers.internal.threads import router as threads_router
 from app.routers.internal.security import router as security_router
 from app.routers.internal.admin_brief import router as admin_brief_router
+from app.routers.internal.admin_metrics import router as admin_metrics_router
 from app.routers.v1.rules import router as rules_router
 from app.routers.v1.agents import router as agents_router
 from app.routers.v1.posts import router as posts_router
@@ -31,6 +32,10 @@ from app.services.circuit_breaker import (
     stop_circuit_breaker_worker,
 )
 from app.services.post_expiry import start_post_expiry_worker, stop_post_expiry_worker
+from app.services.system_metrics import (
+    start_system_metrics_worker,
+    stop_system_metrics_worker,
+)
 
 logging.basicConfig(level=logging.INFO)
 
@@ -47,6 +52,7 @@ async def lifespan(app: FastAPI):
     await start_post_expiry_worker(
         pool, interval=settings.post_expiry_interval, ttl_days=settings.post_expiry_ttl_days
     )
+    await start_system_metrics_worker(pool, interval=settings.system_metrics_interval)
     yield
     await stop_blind_phase_worker()
     await stop_coordinator_worker()
@@ -55,6 +61,7 @@ async def lifespan(app: FastAPI):
     await stop_corpus_promote_worker()
     await stop_circuit_breaker_worker()
     await stop_post_expiry_worker()
+    await stop_system_metrics_worker()
     await close_pool()
 
 
@@ -82,6 +89,7 @@ async def rate_limit_headers(request: Request, call_next) -> Response:
 app.include_router(threads_router)
 app.include_router(security_router)
 app.include_router(admin_brief_router)
+app.include_router(admin_metrics_router)
 app.include_router(rules_router)
 app.include_router(agents_router)
 app.include_router(posts_router)
