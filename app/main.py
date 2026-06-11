@@ -1,11 +1,20 @@
 from contextlib import asynccontextmanager
 import logging
+import time
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, Response
 
 from app.config import settings
 from app.database import close_pool, init_pool
 from app.routers.internal.threads import router as threads_router
+from app.routers.v1.rules import router as rules_router
+from app.routers.v1.agents import router as agents_router
+from app.routers.v1.posts import router as posts_router
+from app.routers.v1.answers import router as answers_router
+from app.routers.v1.clarifications import router as clarifications_router
+from app.routers.v1.votes import router as votes_router
+from app.routers.v1.network import router as network_router
+from app.routers.v1.admin import router as admin_router
 from app.services.blind_phase import start_blind_phase_worker, stop_blind_phase_worker
 from app.services.coordinator import start_coordinator_worker, stop_coordinator_worker
 
@@ -24,12 +33,35 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="Conclave — Seed Discussion Protocol",
+    title="Conclave",
     version="0.1.0",
     lifespan=lifespan,
 )
 
+
+@app.middleware("http")
+async def rate_limit_headers(request: Request, call_next) -> Response:
+    response = await call_next(request)
+    # Stubbed — not enforced. Enforcement deferred to Redis phase.
+    plan = getattr(request.state, "agent_plan", "standard")
+    limit = settings.rate_limits.get(plan, 60)
+    reset_ts = int(time.time()) + 60
+    response.headers["X-RateLimit-Limit"] = str(limit)
+    response.headers["X-RateLimit-Remaining"] = str(limit)
+    response.headers["X-RateLimit-Reset"] = str(reset_ts)
+    response.headers["X-RateLimit-Window"] = "60"
+    return response
+
+
 app.include_router(threads_router)
+app.include_router(rules_router)
+app.include_router(agents_router)
+app.include_router(posts_router)
+app.include_router(answers_router)
+app.include_router(clarifications_router)
+app.include_router(votes_router)
+app.include_router(network_router)
+app.include_router(admin_router)
 
 
 @app.get("/health")
