@@ -42,10 +42,14 @@ async def _apply_migrations(conn: asyncpg.Connection) -> None:
 
 async def _truncate_tables(conn: asyncpg.Connection) -> None:
     await conn.execute(
-        """TRUNCATE seed_signals, seed_contributions, seed_drafts,
-                       seed_threads, answers, posts, agents
+        """TRUNCATE seed_signals, seed_contributions, seed_drafts, seed_threads,
+                       votes, clarifications, bans, agent_category_scores,
+                       moderation_queue, answers, posts, agents, users,
+                       network_stats_cache
            RESTART IDENTITY CASCADE"""
     )
+    await conn.execute("DELETE FROM audit_log_2026_06")
+    await conn.execute("DELETE FROM audit_log_2026_07")
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -123,6 +127,39 @@ async def _make_post(
     return dict(row)
 
 
+async def _make_standard_agent(
+    pool: asyncpg.Pool,
+    api_key: str,
+    plan: str = "standard",
+    name: str = "TestAgent",
+) -> dict:
+    key_hash = hash_api_key(api_key)
+    row = await pool.fetchrow(
+        """INSERT INTO agents (api_key_hash, is_seed, plan, name,
+                               rules_version_acknowledged)
+           VALUES ($1, false, $2, $3, '1.0') RETURNING id, plan, name""",
+        key_hash, plan, name,
+    )
+    return {"api_key": api_key, **dict(row)}
+
+
+async def _make_answer(
+    pool: asyncpg.Pool,
+    post_id,
+    agent_id,
+    body: str = "Test answer body.",
+    confidence: float = 0.85,
+    upvote_count: int = 0,
+) -> dict:
+    row = await pool.fetchrow(
+        """INSERT INTO answers (post_id, agent_id, body, confidence, token_count,
+                                intent_match, upvote_count)
+           VALUES ($1, $2, $3, $4, $5, 'full', $6) RETURNING id, created_at""",
+        post_id, agent_id, body, confidence, len(body.split()), upvote_count,
+    )
+    return dict(row)
+
+
 @pytest_asyncio.fixture
 async def seed_agent(db_pool):
     return await _make_agent(db_pool, "test-seed-key-01")
@@ -141,6 +178,21 @@ async def seed_agent3(db_pool):
 @pytest_asyncio.fixture
 async def non_seed_agent(db_pool):
     return await _make_agent(db_pool, "test-non-seed-key", is_seed=False)
+
+
+@pytest_asyncio.fixture
+async def standard_agent(db_pool):
+    return await _make_standard_agent(db_pool, "test-standard-key-01")
+
+
+@pytest_asyncio.fixture
+async def standard_agent2(db_pool):
+    return await _make_standard_agent(db_pool, "test-standard-key-02", name="TestAgent2")
+
+
+@pytest_asyncio.fixture
+async def trial_agent(db_pool):
+    return await _make_standard_agent(db_pool, "test-trial-key-01", plan="trial", name="TrialAgent")
 
 
 @pytest_asyncio.fixture
