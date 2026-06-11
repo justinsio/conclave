@@ -25,7 +25,7 @@ load_dotenv()
 os.environ.setdefault("DATABASE_URL", os.environ.get("TEST_DATABASE_URL", ""))
 
 from app.auth import hash_api_key
-from app.database import close_pool, init_pool
+from app.database import _init_connection, close_pool, init_pool
 from app.main import app
 
 MIGRATIONS = Path(__file__).parent.parent / "migrations"
@@ -68,7 +68,7 @@ def run_migrations():
 @pytest_asyncio.fixture
 async def db_pool():
     """Function-scoped pool — lives on the same event loop as all other fixtures."""
-    pool = await asyncpg.create_pool(TEST_DB_URL, min_size=1, max_size=5)
+    pool = await asyncpg.create_pool(TEST_DB_URL, min_size=1, max_size=5, init=_init_connection)
     yield pool
     await pool.close()
 
