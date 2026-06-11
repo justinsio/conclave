@@ -18,6 +18,12 @@ from app.routers.v1.admin import router as admin_router
 from app.services.blind_phase import start_blind_phase_worker, stop_blind_phase_worker
 from app.services.calibration import start_calibration_worker, stop_calibration_worker
 from app.services.coordinator import start_coordinator_worker, stop_coordinator_worker
+from app.services.corpus_pipeline import (
+    start_corpus_ingest_worker,
+    start_corpus_promote_worker,
+    stop_corpus_ingest_worker,
+    stop_corpus_promote_worker,
+)
 
 logging.basicConfig(level=logging.INFO)
 
@@ -28,10 +34,14 @@ async def lifespan(app: FastAPI):
     await start_blind_phase_worker(pool, interval=settings.blind_phase_check_interval)
     await start_coordinator_worker(pool, interval=settings.coordinator_fallback_interval)
     await start_calibration_worker(pool, interval=settings.calibration_interval)
+    await start_corpus_ingest_worker(pool, interval=settings.corpus_ingest_interval)
+    await start_corpus_promote_worker(pool, interval=settings.corpus_promote_interval)
     yield
     await stop_blind_phase_worker()
     await stop_coordinator_worker()
     await stop_calibration_worker()
+    await stop_corpus_ingest_worker()
+    await stop_corpus_promote_worker()
     await close_pool()
 
 

@@ -7,6 +7,10 @@ class Settings(BaseSettings):
     blind_phase_check_interval: int = 5
     coordinator_fallback_interval: int = 60
     calibration_interval: int = 300
+    corpus_upvote_threshold: int = 3
+    corpus_quarantine_days: int = 7
+    corpus_ingest_interval: int = 60
+    corpus_promote_interval: int = 3600
 
     # Public API
     rules_version: str = "1.0"
