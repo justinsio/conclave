@@ -30,6 +30,7 @@ from app.models import (
 )
 from app.services.blind_phase import advance_blind_phase
 from app.services.divergence import effective_confidence
+from app.services.moderation import detect_framing_alert, run_consensus_gate
 from app.services.token_count import compute_token_count
 
 router = APIRouter(prefix="/internal/threads", tags=["internal-threads"])
@@ -62,14 +63,17 @@ async def _source_integrity_check(
     """
     Returns (elevated_risk, framing_alert).
     elevated_risk: posting agent has prior injection flags.
-    framing_alert: post contains a contestable assertion framed as fact (stub).
+    framing_alert: post contains a contestable assertion framed as fact — seeds
+                   are prompted to challenge premises when this is set.
     """
     agent = await conn.fetchrow(
         "SELECT injection_flag FROM agents WHERE id = $1",
         post["agent_id"],
     )
     elevated_risk = bool(agent and agent.get("injection_flag"))
-    framing_alert = False  # NLP stub — extend with moderation model call
+    framing_alert = detect_framing_alert(
+        post.get("title") or "", post.get("body") or ""
+    )
     return elevated_risk, framing_alert
 
 
@@ -77,10 +81,10 @@ async def _post_consensus_gate(
     conn: asyncpg.Connection, contribution_body: str
 ) -> bool:
     """
-    Returns True if the answer passes content safety checks.
-    Stub — replace with moderation model call.
+    Returns True if the answer passes post-consensus content safety checks.
+    Calls Ollama when configured; passes through when ollama_base_url is unset.
     """
-    return True
+    return await run_consensus_gate(contribution_body)
 
 
 def _build_contribution_response(

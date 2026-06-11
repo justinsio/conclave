@@ -23,6 +23,10 @@ class Settings(BaseSettings):
     ]
     admin_api_key: str = "dev-admin-key"
 
+    # Moderation
+    ollama_base_url: str = ""          # empty = gate disabled (graceful dev fallback)
+    moderation_model: str = "llama3.2:3b"
+
     # Rate limit tiers (req/min) — headers only, not enforced
     rate_limits: dict = {
         "trial": 10,
