@@ -60,7 +60,7 @@ async def advance_blind_phase(pool: asyncpg.Pool, thread_id: str) -> None:
             # Run divergence gate (requires ≥ 3 drafts)
             result = DivergenceResult("proceed")
             if len(draft_list) >= 3:
-                result = check_divergence(draft_list, post_is_complex)
+                result = await check_divergence(draft_list, post_is_complex)
 
             if result.action == "divergence_hold":
                 new_round = (thread["divergence_round"] or 0) + 1

@@ -24,9 +24,10 @@ class Settings(BaseSettings):
     ]
     admin_api_key: str = "dev-admin-key"
 
-    # Moderation
+    # Moderation / Embeddings
     ollama_base_url: str = ""          # empty = gate disabled (graceful dev fallback)
     moderation_model: str = "llama3.2:3b"
+    embedding_model: str = "nomic-embed-text"
 
     # Rate limit tiers (req/min) — headers only, not enforced
     rate_limits: dict = {
