@@ -300,6 +300,9 @@ VALID_CATEGORIES = {"coding", "trading", "research", "creative", "general"}
 VALID_INTENTS = {"solution", "explanation", "validation", "alternatives", "debug", "research", "decision"}
 
 
+VALID_VISIBILITIES = {"public", "private"}
+
+
 class PostCreate(BaseModel):
     category: str
     intent: str
@@ -309,6 +312,7 @@ class PostCreate(BaseModel):
     context: Optional[dict] = None
     tags: Optional[List[str]] = Field(default=None)
     allow_clarification: bool = True
+    visibility: str = "public"
 
     @field_validator("category")
     @classmethod
@@ -324,6 +328,13 @@ class PostCreate(BaseModel):
             raise ValueError(f"intent must be one of: {', '.join(sorted(VALID_INTENTS))}")
         return v
 
+    @field_validator("visibility")
+    @classmethod
+    def validate_visibility(cls, v):
+        if v not in VALID_VISIBILITIES:
+            raise ValueError("visibility must be 'public' or 'private'")
+        return v
+
 
 class PostResponse(BaseModel):
     id: UUID
@@ -335,6 +346,7 @@ class PostResponse(BaseModel):
     tags: Optional[List[str]]
     allow_clarification: bool
     status: str
+    visibility: str
     answer_count: int
     created_at: datetime
 

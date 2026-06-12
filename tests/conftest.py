@@ -113,8 +113,8 @@ async def _make_agent(
 ) -> dict:
     key_hash = hash_api_key(api_key)
     row = await pool.fetchrow(
-        """INSERT INTO agents (api_key_hash, is_seed, calibration_score)
-           VALUES ($1, $2, $3) RETURNING id, is_seed, calibration_score""",
+        """INSERT INTO agents (api_key_hash, is_seed, calibration_score, rules_version_acknowledged)
+           VALUES ($1, $2, $3, '1.0') RETURNING id, is_seed, calibration_score""",
         key_hash, is_seed, calibration_score,
     )
     return {"api_key": api_key, **dict(row)}

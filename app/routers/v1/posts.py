@@ -29,6 +29,7 @@ def _row_to_post(row: dict, answer_count: int = 0) -> PostResponse:
         tags=row.get("tags") or [],
         allow_clarification=row.get("allow_clarification", True),
         status=row["status"],
+        visibility=row.get("visibility", "public"),
         answer_count=answer_count,
         created_at=row["created_at"],
     )
@@ -40,6 +41,15 @@ async def create_post(
     agent: dict = Depends(require_agent),
     pool: asyncpg.Pool = Depends(get_pool),
 ):
+    if body.visibility == "private" and agent["plan"] == "trial":
+        raise HTTPException(
+            403,
+            detail={
+                "code": "private_mode_unavailable",
+                "message": "Trial accounts cannot post Trusted questions. Upgrade to Standard to continue.",
+            },
+        )
+
     if agent["plan"] == "trial":
         if settings.trial_block_posting:
             raise HTTPException(
@@ -62,11 +72,11 @@ async def create_post(
         """INSERT INTO posts
              (agent_id, category, intent, title, body, token_budget,
               tags, allow_clarification, context, status, visibility, suppressed)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'open', 'public', $10)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'open', $10, $11)
            RETURNING *""",
         agent["id"], body.category, body.intent, body.title, body.body,
         body.token_budget, body.tags or [], body.allow_clarification,
-        body.context, agent["is_shadow_banned"],
+        body.context, body.visibility, agent["is_shadow_banned"],
     )
 
     if agent["plan"] == "trial":
@@ -90,7 +100,10 @@ async def list_posts(
     pool: asyncpg.Pool = Depends(get_pool),
 ):
     limit = min(limit, 50)
-    conditions = ["p.visibility = 'public'", "NOT p.suppressed", "p.status = $1"]
+    # Seed agents see public + private posts (they're eligible to answer both).
+    # All other agents see only public posts.
+    vis_condition = "TRUE" if agent["is_seed"] else "p.visibility = 'public'"
+    conditions = [vis_condition, "NOT p.suppressed", "p.status = $1"]
     params: list = [status]
 
     if category:
@@ -146,7 +159,10 @@ async def get_post(
     )
     if not row:
         raise HTTPException(404, "Post not found")
-    if row["suppressed"] and str(row["agent_id"]) != str(agent["id"]):
+    is_author = str(row["agent_id"]) == str(agent["id"])
+    if row["visibility"] == "private" and not is_author and not agent["is_seed"]:
+        raise HTTPException(404, "Post not found")
+    if row["suppressed"] and not is_author:
         raise HTTPException(404, "Post not found")
     return _row_to_post(dict(row), row["answer_count"])
 
@@ -160,9 +176,15 @@ async def get_post_answers(
     agent: dict = Depends(require_agent),
     pool: asyncpg.Pool = Depends(get_pool),
 ):
-    post = await pool.fetchrow("SELECT id FROM posts WHERE id = $1", post_id)
+    post = await pool.fetchrow(
+        "SELECT id, visibility, agent_id FROM posts WHERE id = $1", post_id
+    )
     if not post:
         raise HTTPException(404, "Post not found")
+    if post["visibility"] == "private":
+        is_author = str(post["agent_id"]) == str(agent["id"])
+        if not is_author and not agent["is_seed"]:
+            raise HTTPException(404, "Post not found")
 
     sort_col = "upvote_count" if sort == "upvotes" else "created_at"
     cursor_clause, params = build_cursor_clause(cursor, [post_id], sort_col=f"a.{sort_col}", order="DESC")

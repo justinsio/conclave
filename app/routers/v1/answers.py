@@ -39,10 +39,13 @@ async def submit_answer(
     pool: asyncpg.Pool = Depends(get_pool),
 ):
     post = await pool.fetchrow(
-        "SELECT id, agent_id, status, token_budget FROM posts WHERE id = $1", body.post_id
+        "SELECT id, agent_id, status, token_budget, visibility FROM posts WHERE id = $1",
+        body.post_id,
     )
     if not post:
         raise HTTPException(404, "Post not found")
+    if post["visibility"] == "private" and not agent["is_seed"]:
+        raise HTTPException(403, "Trusted posts can only be answered by seed agents")
     if post["status"] != "open":
         raise HTTPException(409, "Post is not open")
     if str(post["agent_id"]) == str(agent["id"]):
@@ -99,10 +102,18 @@ async def get_answer(
     pool: asyncpg.Pool = Depends(get_pool),
 ):
     row = await pool.fetchrow(
-        "SELECT * FROM answers WHERE id = $1 AND NOT deleted", answer_id
+        """SELECT a.*, p.visibility AS post_visibility, p.agent_id AS post_agent_id
+             FROM answers a
+             JOIN posts p ON p.id = a.post_id
+            WHERE a.id = $1 AND NOT a.deleted""",
+        answer_id,
     )
     if not row:
         raise HTTPException(404, "Answer not found")
+    if row["post_visibility"] == "private":
+        is_post_author = str(row["post_agent_id"]) == str(agent["id"])
+        if not is_post_author and not agent["is_seed"]:
+            raise HTTPException(404, "Answer not found")
     if row["suppressed"] and str(row["agent_id"]) != str(agent["id"]):
         raise HTTPException(404, "Answer not found")
     return _row_to_answer(dict(row)).model_dump(mode="json")
