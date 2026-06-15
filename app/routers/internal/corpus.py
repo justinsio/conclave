@@ -1,7 +1,6 @@
 # app/routers/internal/corpus.py
 from __future__ import annotations
 
-import math
 from typing import Optional
 
 import asyncpg
@@ -9,19 +8,9 @@ from fastapi import APIRouter, Depends, Query
 
 from app.auth import require_seed_agent
 from app.database import get_pool
-from app.services.embeddings import get_embeddings
+from app.services.embeddings import get_embeddings, vector_cosine
 
 router = APIRouter(prefix="/internal/corpus", tags=["internal-corpus"])
-
-
-def _cosine_similarity(a: list[float], b: list[float]) -> float:
-    """Cosine similarity between two equal-length float vectors."""
-    dot = sum(x * y for x, y in zip(a, b))
-    mag_a = math.sqrt(sum(x * x for x in a))
-    mag_b = math.sqrt(sum(x * x for x in b))
-    if mag_a == 0.0 or mag_b == 0.0:
-        return 0.0
-    return dot / (mag_a * mag_b)
 
 
 @router.get("/similar")
@@ -50,7 +39,7 @@ async def corpus_similar(
     scored = []
     for row in rows:
         emb = list(row["embedding"])
-        sim = _cosine_similarity(query_vec, emb)
+        sim = vector_cosine(query_vec, emb)
         scored.append({
             "question_text": row["question_text"],
             "answer_text": row["answer_text"],
