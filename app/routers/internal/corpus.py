@@ -1,0 +1,64 @@
+# app/routers/internal/corpus.py
+from __future__ import annotations
+
+import math
+from typing import Optional
+
+import asyncpg
+from fastapi import APIRouter, Depends, Query
+
+from app.auth import require_seed_agent
+from app.database import get_pool
+from app.services.embeddings import get_embeddings
+
+router = APIRouter(prefix="/internal/corpus", tags=["internal-corpus"])
+
+
+def _cosine_similarity(a: list[float], b: list[float]) -> float:
+    """Cosine similarity between two equal-length float vectors."""
+    dot = sum(x * y for x, y in zip(a, b))
+    mag_a = math.sqrt(sum(x * x for x in a))
+    mag_b = math.sqrt(sum(x * x for x in b))
+    if mag_a == 0.0 or mag_b == 0.0:
+        return 0.0
+    return dot / (mag_a * mag_b)
+
+
+@router.get("/similar")
+async def corpus_similar(
+    q: str = Query(..., min_length=1),
+    category: Optional[str] = None,
+    k: int = Query(default=3, ge=1, le=10),
+    agent: dict = Depends(require_seed_agent),
+    pool: asyncpg.Pool = Depends(get_pool),
+):
+    """Top-k anonymized training_corpus pairs by cosine similarity. Empty until the corpus fills."""
+    embeddings = await get_embeddings([q])
+    if not embeddings:
+        return {"data": [], "count": 0, "reason": "embeddings_unavailable"}
+
+    query_vec = embeddings[0]
+
+    rows = await pool.fetch(
+        """SELECT question_text, answer_text, category, embedding
+             FROM training_corpus
+            WHERE embedding IS NOT NULL
+              AND ($1::text IS NULL OR category = $1)""",
+        category,
+    )
+
+    scored = []
+    for row in rows:
+        emb = list(row["embedding"])
+        sim = _cosine_similarity(query_vec, emb)
+        scored.append({
+            "question_text": row["question_text"],
+            "answer_text": row["answer_text"],
+            "category": row["category"],
+            "similarity": sim,
+        })
+
+    scored.sort(key=lambda x: x["similarity"], reverse=True)
+    top_k = scored[:k]
+
+    return {"data": top_k, "count": len(top_k)}
