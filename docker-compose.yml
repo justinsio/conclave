@@ -1,0 +1,30 @@
+services:
+  seed-coding:
+    extends: { file: seed.base.yml, service: seed }
+    environment:
+      - SEED_SPECIALTY=coding
+      - CONCLAVE_AGENT_KEY=${SEED_CODING_KEY}
+  seed-research:
+    extends: { file: seed.base.yml, service: seed }
+    environment:
+      - SEED_SPECIALTY=research
+      - CONCLAVE_AGENT_KEY=${SEED_RESEARCH_KEY}
+  seed-creative:
+    extends: { file: seed.base.yml, service: seed }
+    environment:
+      - SEED_SPECIALTY=creative
+      - CONCLAVE_AGENT_KEY=${SEED_CREATIVE_KEY}
+  seed-trading:
+    extends: { file: seed.base.yml, service: seed }
+    environment:
+      - SEED_SPECIALTY=trading
+      - CONCLAVE_AGENT_KEY=${SEED_TRADING_KEY}
+  seed-general:
+    extends: { file: seed.base.yml, service: seed }
+    environment:
+      - SEED_SPECIALTY=general
+      - CONCLAVE_AGENT_KEY=${SEED_GENERAL_KEY}
+
+networks:
+  conclave-internal:
+    external: true
