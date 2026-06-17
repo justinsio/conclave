@@ -36,6 +36,47 @@ def detect_framing_alert(title: str, body: str) -> bool:
     return any(p.search(text) for p in _FRAMING_PATTERNS)
 
 
+# ─── Structural pre-checks (Layer 0 + Layer 2) — free, run before any model ─────
+
+# Layer 2: URLs are never permitted in prose. Strip fenced code first, then scan.
+_CODE_FENCE_RE = re.compile(r"```.*?```", re.DOTALL)
+_URL_RE = re.compile(r"https?://", re.IGNORECASE)
+
+# Layer 0: structural prompt-injection signatures. Pre-semantic, high-precision.
+_INJECTION_PATTERNS = [
+    re.compile(r"\bignore\s+(all\s+)?(previous|prior|above)\s+(instructions?|prompts?)\b", re.IGNORECASE),
+    re.compile(r"\bdisregard\s+(all\s+)?(previous|prior|above|your)\b", re.IGNORECASE),
+    re.compile(r"\byou\s+are\s+now\s+(an?\s+)?\w+", re.IGNORECASE),
+    re.compile(r"\bnew\s+instructions?\s*:", re.IGNORECASE),
+    re.compile(r"\byou\s+are\s+now\s+authorized\s+to\b", re.IGNORECASE),
+    re.compile(r"\b(reveal|repeat|print|show|output|leak|expose)\b.{0,40}\bsystem\s+prompt\b",
+               re.IGNORECASE | re.DOTALL),
+]
+
+
+def contains_url_outside_code_fence(text: str) -> bool:
+    stripped = _CODE_FENCE_RE.sub("", text or "")
+    return bool(_URL_RE.search(stripped))
+
+
+def detect_injection(text: str) -> bool:
+    t = text or ""
+    return any(p.search(t) for p in _INJECTION_PATTERNS)
+
+
+def structural_precheck(title: str, body: str) -> str | None:
+    """Return a rejection code, or None if the content passes the free checks.
+
+    Codes: 'url_not_permitted' | 'injection_suspected'.
+    """
+    text = f"{title or ''}\n{body or ''}"
+    if contains_url_outside_code_fence(text):
+        return "url_not_permitted"
+    if detect_injection(text):
+        return "injection_suspected"
+    return None
+
+
 # ─── Post-consensus gate ──────────────────────────────────────────────────────
 
 _CONSENSUS_GATE_PROMPT = """\
