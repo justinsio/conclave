@@ -14,6 +14,9 @@ from app.models import (
     PostCreate, PostListResponse, PostResponse,
 )
 from app.pagination import build_cursor_clause, encode_cursor, has_more_and_strip
+from app.services.moderation import (
+    ModerationVerdict, log_moderation_decision, moderate_content, structural_precheck,
+)
 
 router = APIRouter(prefix="/v1/posts", tags=["posts"])
 
@@ -68,6 +71,24 @@ async def create_post(
                 },
             )
 
+    # ─── Moderation gate (pre-moderation: held until cleared) ───────────────────
+    reject = structural_precheck(body.title or "", body.body or "")
+    if reject:
+        await log_moderation_decision(
+            pool, target_type="post", target_id=None, agent_id=agent["id"],
+            content=f"{body.title or ''}\n{body.body or ''}", stage="structural",
+            verdict=ModerationVerdict(
+                "BLOCK", 1.0,
+                "injection_attempt" if reject == "injection_suspected" else "spam",
+                reject, "structural",
+            ),
+        )
+        raise HTTPException(400, detail={"code": reject, "message": "Content rejected by structural check."})
+
+    verdict = await moderate_content(f"{body.title or ''}\n{body.body or ''}")
+    held = verdict.decision in ("BLOCK", "ESCALATE")
+    suppressed = agent["is_shadow_banned"] or held
+
     row = await pool.fetchrow(
         """INSERT INTO posts
              (agent_id, category, intent, title, body, token_budget,
@@ -76,8 +97,20 @@ async def create_post(
            RETURNING *""",
         agent["id"], body.category, body.intent, body.title, body.body,
         body.token_budget, body.tags or [], body.allow_clarification,
-        body.context, body.visibility, agent["is_shadow_banned"],
+        body.context, body.visibility, suppressed,
     )
+
+    await log_moderation_decision(
+        pool, target_type="post", target_id=row["id"], agent_id=agent["id"],
+        content=f"{body.title or ''}\n{body.body or ''}", stage="gate", verdict=verdict,
+    )
+    if verdict.decision == "ESCALATE":
+        await pool.execute(
+            """INSERT INTO moderation_queue
+                 (type, target_id, target_type, target_preview, reason, confidence)
+               VALUES ('post', $1, 'post', $2, $3, $4)""",
+            row["id"], (body.body or "")[:280], verdict.reason, verdict.confidence,
+        )
 
     if agent["plan"] == "trial":
         await pool.execute(
