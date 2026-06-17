@@ -39,6 +39,11 @@ class Settings(BaseSettings):
     moderation_model: str = "llama3.2:3b"
     embedding_model: str = "nomic-embed-text"
 
+    # Primary content gate (Haiku) — distinct from the Ollama seed-answer consensus gate
+    anthropic_api_key: str = ""                     # empty = gate not configured (dev passes through)
+    moderation_gate_model: str = "claude-haiku-4-5"
+    moderation_gate_enabled: bool = False           # set true in beta/prod .env (with anthropic_api_key)
+
     # Trial limits — 5 days OR 10 posts, whichever comes first
     trial_max_days: int = 5
     trial_max_posts: int = 10
