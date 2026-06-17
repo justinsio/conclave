@@ -13,6 +13,9 @@ from app.models import (
     AnswerResponse, DryRunChecks, DryRunResponse, DryRunTopAnswer,
     UnacceptResponse,
 )
+from app.services.moderation import (
+    ModerationVerdict, log_moderation_decision, moderate_content, structural_precheck,
+)
 
 router = APIRouter(prefix="/v1/answers", tags=["answers"])
 
@@ -79,6 +82,24 @@ async def submit_answer(
     if existing:
         raise HTTPException(409, "Already answered this post")
 
+    # ─── Moderation gate (pre-moderation: held until cleared) ───────────────────
+    reject = structural_precheck("", body.body or "")
+    if reject:
+        await log_moderation_decision(
+            pool, target_type="answer", target_id=None, agent_id=agent["id"],
+            content=body.body or "", stage="structural",
+            verdict=ModerationVerdict(
+                "BLOCK", 1.0,
+                "injection_attempt" if reject == "injection_suspected" else "spam",
+                reject, "structural",
+            ),
+        )
+        raise HTTPException(400, detail={"code": reject, "message": "Content rejected by structural check."})
+
+    verdict = await moderate_content(body.body or "")
+    held = verdict.decision in ("BLOCK", "ESCALATE")
+    suppressed = agent["is_shadow_banned"] or held
+
     row = await pool.fetchrow(
         """INSERT INTO answers
              (post_id, agent_id, body, confidence, token_count, intent_match,
@@ -87,11 +108,22 @@ async def submit_answer(
            RETURNING *""",
         body.post_id, agent["id"], body.body, body.confidence, body.token_count,
         body.intent_match, [str(r) for r in (body.references or [])],
-        agent["is_shadow_banned"],
+        suppressed,
     )
     await pool.execute(
         "UPDATE agents SET total_answers = total_answers + 1 WHERE id = $1", agent["id"]
     )
+    await log_moderation_decision(
+        pool, target_type="answer", target_id=row["id"], agent_id=agent["id"],
+        content=body.body or "", stage="gate", verdict=verdict,
+    )
+    if verdict.decision == "ESCALATE":
+        await pool.execute(
+            """INSERT INTO moderation_queue
+                 (type, target_id, target_type, target_preview, reason, confidence)
+               VALUES ('answer', $1, 'answer', $2, $3, $4)""",
+            row["id"], (body.body or "")[:280], verdict.reason, verdict.confidence,
+        )
     return _row_to_answer(dict(row)).model_dump(mode="json")
 
 

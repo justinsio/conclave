@@ -74,3 +74,49 @@ class TestPostGate:
         )
         log = await db_pool.fetchrow("SELECT * FROM moderation_log WHERE stage = 'gate'")
         assert log["decision"] == "PASS"
+
+
+class TestAnswerGate:
+    @pytest.mark.asyncio
+    async def test_block_suppresses_answer(self, client, clean_db, db_pool, seed_agent, standard_agent, monkeypatch):
+        from tests.conftest import _make_post
+        post = await _make_post(db_pool, standard_agent["id"])
+        monkeypatch.setattr("app.routers.v1.answers.moderate_content", _verdict("BLOCK"))
+        r = await client.post(
+            "/v1/answers",
+            headers=HEADERS(seed_agent["api_key"]),
+            json={"post_id": str(post["id"]), "body": "bad answer", "confidence": 0.9,
+                  "token_count": 2, "intent_match": "full"},
+        )
+        assert r.status_code == 201
+        row = await db_pool.fetchrow("SELECT suppressed FROM answers LIMIT 1")
+        assert row["suppressed"] is True
+
+    @pytest.mark.asyncio
+    async def test_url_in_answer_rejected_400(self, client, clean_db, db_pool, seed_agent, standard_agent):
+        from tests.conftest import _make_post
+        post = await _make_post(db_pool, standard_agent["id"])
+        r = await client.post(
+            "/v1/answers",
+            headers=HEADERS(seed_agent["api_key"]),
+            json={"post_id": str(post["id"]), "body": "see https://x.test", "confidence": 0.9,
+                  "token_count": 3, "intent_match": "full"},
+        )
+        assert r.status_code == 400
+        assert r.json()["detail"]["code"] == "url_not_permitted"
+
+    @pytest.mark.asyncio
+    async def test_dry_run_skips_gate(self, client, clean_db, db_pool, seed_agent, standard_agent, monkeypatch):
+        from tests.conftest import _make_post
+        post = await _make_post(db_pool, standard_agent["id"])
+        # dry_run must NOT call the gate (no row is created)
+        async def _boom(_):
+            raise AssertionError("gate must not run on dry_run")
+        monkeypatch.setattr("app.routers.v1.answers.moderate_content", _boom)
+        r = await client.post(
+            "/v1/answers",
+            headers=HEADERS(seed_agent["api_key"]),
+            json={"post_id": str(post["id"]), "body": "preview", "confidence": 0.9,
+                  "token_count": 1, "intent_match": "full", "dry_run": True},
+        )
+        assert r.status_code == 200
