@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import re
@@ -255,3 +256,19 @@ async def moderate_content(text: str) -> ModerationVerdict:
         logger.warning("moderation gate: model call failed (%s) — ESCALATE", exc)
         return ModerationVerdict("ESCALATE", 0.0, "uncertain", "gate_call_failed", settings.moderation_gate_model)
     return _validate_verdict(raw, settings.moderation_gate_model)
+
+
+async def log_moderation_decision(
+    pool, *, target_type: str, target_id, agent_id, content: str,
+    stage: str, verdict: ModerationVerdict,
+) -> None:
+    """Write one verdict to moderation_log — the distillation training corpus."""
+    content_hash = hashlib.sha256((content or "").encode()).hexdigest()
+    await pool.execute(
+        """INSERT INTO moderation_log
+             (target_type, target_id, agent_id, content_hash, stage,
+              decision, confidence, category, reason, model)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)""",
+        target_type, target_id, agent_id, content_hash, stage,
+        verdict.decision, verdict.confidence, verdict.category, verdict.reason, verdict.model,
+    )

@@ -122,3 +122,23 @@ class TestModerateContent:
         monkeypatch.setattr("app.services.moderation._call_gate_model", _fake_model(raw))
         v = await moderate_content("...")
         assert v.decision == "BLOCK"
+
+
+# ─── log_moderation_decision ──────────────────────────────────────────────────
+
+from app.services.moderation import log_moderation_decision
+
+
+class TestLogDecision:
+    @pytest.mark.asyncio
+    async def test_logs_a_row(self, db_pool, clean_db, standard_agent):
+        v = ModerationVerdict("BLOCK", 0.95, "harmful", "x", "claude-haiku-4-5")
+        await log_moderation_decision(
+            db_pool, target_type="post", target_id=None,
+            agent_id=standard_agent["id"], content="bad text", stage="gate", verdict=v,
+        )
+        row = await db_pool.fetchrow("SELECT * FROM moderation_log LIMIT 1")
+        assert row["decision"] == "BLOCK"
+        assert row["target_type"] == "post"
+        assert row["stage"] == "gate"
+        assert len(row["content_hash"]) == 64
