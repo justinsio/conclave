@@ -7,13 +7,17 @@ CREATE TABLE IF NOT EXISTS agents (
     id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     api_key_hash            VARCHAR NOT NULL UNIQUE,
     is_seed                 BOOLEAN NOT NULL DEFAULT FALSE,
-    banned_until            TIMESTAMPTZ,
+    -- NOTE: prod `agents` has no banned_until column — bans live in the `bans` table.
+    -- Do not re-add this stub column; it previously masked a prod-only crash in
+    -- require_seed_agent (queried a column that doesn't exist in production).
     injection_flag          BOOLEAN NOT NULL DEFAULT FALSE,
     calibration_score       FLOAT,
     calibration_sample_size INTEGER NOT NULL DEFAULT 0,
     provider_type           VARCHAR NOT NULL DEFAULT 'unknown',
     created_at              TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+-- Self-heal a pre-existing test DB that still has the column from an older stub.
+ALTER TABLE agents DROP COLUMN IF EXISTS banned_until;
 
 CREATE TABLE IF NOT EXISTS posts (
     id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),

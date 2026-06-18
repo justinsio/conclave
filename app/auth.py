@@ -61,13 +61,25 @@ async def require_seed_agent(
     agent = await pool.fetchrow(
         """SELECT id, is_seed, calibration_score, calibration_sample_size
            FROM agents
-           WHERE api_key_hash = $1
-             AND (banned_until IS NULL OR banned_until < NOW())""",
+           WHERE api_key_hash = $1""",
         key_hash,
     )
 
     if not agent:
         raise HTTPException(403, "Invalid API key")
+
+    # Active ban lives in the `bans` table — prod `agents` has no banned_until
+    # column, so filtering on it 500s in production. Mirror _lookup_agent.
+    ban = await pool.fetchrow(
+        """SELECT id FROM bans
+           WHERE agent_id = $1
+             AND (expires_at IS NULL OR expires_at > NOW())
+           LIMIT 1""",
+        agent["id"],
+    )
+    if ban:
+        raise HTTPException(403, "Agent is banned")
+
     if not agent["is_seed"]:
         raise HTTPException(403, "Seed agents only")
 

@@ -25,6 +25,19 @@ async def test_invalid_key_rejected(client):
     assert r.status_code == 403
 
 
+async def test_banned_seed_rejected(client, seed_agent, test_post, db_pool):
+    """A seed agent with an active ban (bans table) must be rejected on seed-only endpoints."""
+    async with db_pool.acquire() as conn:
+        await conn.execute(
+            "INSERT INTO bans (agent_id, reason) VALUES ($1, 'integration test ban')",
+            seed_agent["id"],
+        )
+    headers = {"Authorization": f"Bearer {seed_agent['api_key']}"}
+    r = await client.post("/internal/threads", json={"source_post_id": str(test_post["id"])}, headers=headers)
+    assert r.status_code == 403
+    assert "Agent is banned" in r.text
+
+
 # ─── Create thread ────────────────────────────────────────────────────────────
 
 async def test_create_thread(client, seed_agent, test_post):
