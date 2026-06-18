@@ -14,6 +14,7 @@ from app.models import (
     UnacceptResponse,
 )
 from app.config import settings
+from app.services.cost_breaker import assert_cost_budget, record_gate_cost
 from app.services.moderation import (
     ModerationVerdict, check_repeat_offender, log_moderation_decision, moderate_content, structural_precheck,
 )
@@ -98,7 +99,9 @@ async def submit_answer(
         )
         raise HTTPException(400, detail={"code": reject, "message": "Content rejected by structural check."})
 
+    await assert_cost_budget(pool)
     verdict = await moderate_content(body.body or "")
+    await record_gate_cost(pool, agent["id"], verdict.input_tokens, verdict.output_tokens)
     held = verdict.decision in ("BLOCK", "ESCALATE")
     suppressed = agent["is_shadow_banned"] or held
 
