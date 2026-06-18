@@ -36,7 +36,8 @@ class TestTimeout:
         assert n == 1
 
         q = await db_pool.fetchrow(
-            "SELECT resolved, resolved_by, action_taken FROM moderation_queue LIMIT 1"
+            "SELECT resolved, resolved_by, action_taken FROM moderation_queue WHERE target_id = $1",
+            post["id"],
         )
         assert q["resolved"] is True
         assert q["resolved_by"] == "auto_timeout"
@@ -52,5 +53,7 @@ class TestTimeout:
         n = await run_moderation_timeout(db_pool, timeout_hours=8)
         assert n == 0
 
-        q = await db_pool.fetchrow("SELECT resolved FROM moderation_queue LIMIT 1")
+        q = await db_pool.fetchrow(
+            "SELECT resolved FROM moderation_queue WHERE target_id = $1", post["id"]
+        )
         assert q["resolved"] is False
