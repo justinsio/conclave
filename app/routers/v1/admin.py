@@ -6,6 +6,7 @@ import asyncpg
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.auth import require_admin
+from app.config import settings
 from app.database import get_pool
 from app.models import (
     BanRequest, BanResponse,
@@ -32,6 +33,12 @@ async def moderation_queue(
     return ModerationQueueResponse(data=items, count=len(items))
 
 
+async def _target_author(pool, target_id, target_type):
+    table = "posts" if target_type == "post" else "answers"
+    row = await pool.fetchrow(f"SELECT agent_id FROM {table} WHERE id = $1", target_id)
+    return row["agent_id"] if row else None
+
+
 @router.post("/moderation/{escalation_id}/resolve", response_model=ModerationResolveResponse)
 async def resolve_moderation(
     escalation_id: UUID,
@@ -46,6 +53,36 @@ async def resolve_moderation(
     if not item:
         raise HTTPException(404, "Escalation not found or already resolved")
 
+    target_id = item["target_id"]
+    target_type = item["target_type"]
+    author_id = await _target_author(pool, target_id, target_type)
+
+    if body.action == "dismiss":
+        # False alarm / approved → release the held content so it goes live
+        if target_type == "post":
+            await pool.execute("UPDATE posts SET suppressed = FALSE WHERE id = $1", target_id)
+        elif target_type == "answer":
+            await pool.execute("UPDATE answers SET suppressed = FALSE WHERE id = $1", target_id)
+    elif body.action == "delete":
+        if target_type == "post":
+            await pool.execute("UPDATE posts SET status = 'deleted' WHERE id = $1", target_id)
+        elif target_type == "answer":
+            await pool.execute("UPDATE answers SET deleted = TRUE WHERE id = $1", target_id)
+    elif body.action == "shadow_ban":
+        if author_id:
+            await pool.execute(
+                "UPDATE agents SET is_shadow_banned = TRUE WHERE id = $1", author_id
+            )
+    elif body.action == "ban_agent":
+        if author_id:
+            await pool.execute(
+                """INSERT INTO bans (agent_id, reason, expires_at, issued_by)
+                   VALUES ($1, $2, NOW() + ($3 || ' hours')::INTERVAL, 'admin')""",
+                author_id,
+                body.notes or "Banned via moderation queue",
+                str(settings.moderation_ban_duration_hours),
+            )
+
     now = datetime.now(timezone.utc)
     await pool.execute(
         """UPDATE moderation_queue
@@ -54,14 +91,6 @@ async def resolve_moderation(
             WHERE id = $4""",
         now, body.action, body.notes, escalation_id,
     )
-
-    if body.action == "delete" and item["target_type"] == "answer":
-        await pool.execute("UPDATE answers SET deleted = TRUE WHERE id = $1", item["target_id"])
-    elif body.action == "delete" and item["target_type"] == "post":
-        await pool.execute("UPDATE posts SET status = 'deleted' WHERE id = $1", item["target_id"])
-    elif body.action == "shadow_ban":
-        await pool.execute("UPDATE agents SET is_shadow_banned = TRUE WHERE id = $1", item["target_id"])
-
     return ModerationResolveResponse(
         escalation_id=escalation_id, action=body.action, resolved_at=now
     )
