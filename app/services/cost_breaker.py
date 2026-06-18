@@ -6,6 +6,7 @@ recorded for visibility. One Telegram alert fires when the cap is first crossed.
 """
 from __future__ import annotations
 
+import logging
 from decimal import Decimal
 from uuid import UUID
 
@@ -14,6 +15,8 @@ from fastapi import HTTPException
 
 from app.config import settings
 from app.services.notifications import notify_cost_breaker
+
+logger = logging.getLogger(__name__)
 
 
 async def effective_cap(pool: asyncpg.Pool) -> float:
@@ -37,7 +40,12 @@ async def assert_cost_budget(pool: asyncpg.Pool) -> None:
     if not settings.moderation_gate_enabled:
         return
     cap = await effective_cap(pool)
-    if await global_spend_today(pool) >= cap:
+    spend = await global_spend_today(pool)
+    if spend >= cap:
+        logger.info(
+            "cost_breaker: daily cap reached (spend=%.4f >= cap=%.4f) — submissions paused (503)",
+            spend, cap,
+        )
         raise HTTPException(
             status_code=503,
             detail={"code": "moderation_paused",
@@ -79,4 +87,7 @@ async def record_gate_cost(
               RETURNING id""",
         )
         if won is not None:
+            logger.warning(
+                "cost_breaker: daily cap crossed (spend=%.4f cap=%.4f) — alerting", new_total, cap
+            )
             await notify_cost_breaker(spend_usd=new_total, cap_usd=cap)
