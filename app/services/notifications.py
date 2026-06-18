@@ -81,3 +81,14 @@ async def notify_auto_ban(*, agent_id: str | UUID, block_count: int) -> bool:
         f"{_dash()}"
     )
     return await _send_telegram(text)
+
+
+async def notify_cost_breaker(*, spend_usd: float, cap_usd: float) -> bool:
+    text = (
+        "\U0001F6D1 <b>Conclave cost breaker tripped</b>\n"
+        f"Daily Haiku spend ${spend_usd:.2f} reached the cap ${cap_usd:.2f}.\n"
+        "New gate-requiring submissions are rejected (503) until the cap resets at "
+        "UTC midnight, or raise it via the admin API."
+        f"{_dash()}"
+    )
+    return await _send_telegram(text)
