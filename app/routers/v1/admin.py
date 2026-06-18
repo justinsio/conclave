@@ -93,6 +93,11 @@ async def resolve_moderation(
         else:
             logger.warning("resolve %s: ban_agent skipped — author not found for %s %s",
                            escalation_id, target_type, target_id)
+        # Keep the offending content down regardless of whether the author was found.
+        if target_type == "post":
+            await pool.execute("UPDATE posts SET suppressed = TRUE WHERE id = $1", target_id)
+        elif target_type == "answer":
+            await pool.execute("UPDATE answers SET suppressed = TRUE WHERE id = $1", target_id)
 
     now = datetime.now(timezone.utc)
     await pool.execute(

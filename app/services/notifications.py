@@ -76,7 +76,7 @@ async def notify_auto_block(*, count: int) -> bool:
 async def notify_auto_ban(*, agent_id: str | UUID, block_count: int) -> bool:
     text = (
         "\U0001F528 <b>Conclave moderation: auto-ban</b>\n"
-        f"Agent <code>{agent_id}</code> hit {block_count} blocked submissions in "
+        f"Agent <code>{html.escape(str(agent_id))}</code> hit {block_count} blocked submissions in "
         f"{settings.moderation_ban_window_hours}h → {settings.moderation_ban_duration_hours}h temp ban."
         f"{_dash()}"
     )
