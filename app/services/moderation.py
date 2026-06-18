@@ -272,3 +272,50 @@ async def log_moderation_decision(
         target_type, target_id, agent_id, content_hash, stage,
         verdict.decision, verdict.confidence, verdict.category, verdict.reason, verdict.model,
     )
+
+
+# ─── Conservative repeat-offender auto-ban (Part 2) ─────────────────────────────
+
+
+async def count_recent_gate_blocks(pool, agent_id) -> int:
+    """Count this agent's gate BLOCK verdicts within the ban window.
+
+    Only stage='gate' decision='BLOCK' counts — structural rejects and ESCALATEs
+    are excluded by design.
+    """
+    row = await pool.fetchrow(
+        """SELECT COUNT(*) AS n FROM moderation_log
+            WHERE agent_id = $1 AND stage = 'gate' AND decision = 'BLOCK'
+              AND created_at > NOW() - ($2 || ' hours')::INTERVAL""",
+        agent_id, str(settings.moderation_ban_window_hours),
+    )
+    return int(row["n"])
+
+
+async def has_active_ban(pool, agent_id) -> bool:
+    row = await pool.fetchrow(
+        """SELECT 1 FROM bans
+            WHERE agent_id = $1 AND (expires_at IS NULL OR expires_at > NOW())
+            LIMIT 1""",
+        agent_id,
+    )
+    return row is not None
+
+
+async def check_repeat_offender(pool, agent_id) -> bool:
+    """If the agent has >= threshold gate BLOCKs in the window and isn't already
+    banned, insert a temp ban. Returns True only if a new ban was issued."""
+    if await has_active_ban(pool, agent_id):
+        return False
+    count = await count_recent_gate_blocks(pool, agent_id)
+    if count < settings.moderation_ban_block_threshold:
+        return False
+    await pool.execute(
+        """INSERT INTO bans (agent_id, reason, expires_at, issued_by)
+           VALUES ($1, $2, NOW() + ($3 || ' hours')::INTERVAL, 'moderation_ai')""",
+        agent_id,
+        f"Auto-ban: {count} blocked submissions in {settings.moderation_ban_window_hours}h",
+        str(settings.moderation_ban_duration_hours),
+    )
+    logger.info("moderation: auto-banned agent %s (%d gate BLOCKs in window)", agent_id, count)
+    return True
