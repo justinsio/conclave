@@ -117,10 +117,9 @@ async def create_post(
             reason=verdict.reason, preview=(body.body or "")[:200],
         )
     elif verdict.decision == "BLOCK":
-        if await check_repeat_offender(pool, agent["id"]):
-            await notify_auto_ban(
-                agent_id=agent["id"], block_count=settings.moderation_ban_block_threshold
-            )
+        blocks = await check_repeat_offender(pool, agent["id"])
+        if blocks:
+            await notify_auto_ban(agent_id=agent["id"], block_count=blocks)
 
     if agent["plan"] == "trial":
         await pool.execute(

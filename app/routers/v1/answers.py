@@ -131,10 +131,9 @@ async def submit_answer(
             reason=verdict.reason, preview=(body.body or "")[:200],
         )
     elif verdict.decision == "BLOCK":
-        if await check_repeat_offender(pool, agent["id"]):
-            await notify_auto_ban(
-                agent_id=agent["id"], block_count=settings.moderation_ban_block_threshold
-            )
+        blocks = await check_repeat_offender(pool, agent["id"])
+        if blocks:
+            await notify_auto_ban(agent_id=agent["id"], block_count=blocks)
     return _row_to_answer(dict(row)).model_dump(mode="json")
 
 

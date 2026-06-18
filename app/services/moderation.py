@@ -304,14 +304,15 @@ async def has_active_ban(pool: asyncpg.Pool, agent_id) -> bool:
     return row is not None
 
 
-async def check_repeat_offender(pool: asyncpg.Pool, agent_id) -> bool:
+async def check_repeat_offender(pool: asyncpg.Pool, agent_id) -> int:
     """If the agent has >= threshold gate BLOCKs in the window and isn't already
-    banned, insert a temp ban. Returns True only if a new ban was issued."""
+    banned, insert a temp ban. Returns the block count that triggered the ban,
+    or 0 if no new ban was issued."""
     if await has_active_ban(pool, agent_id):
-        return False
+        return 0
     count = await count_recent_gate_blocks(pool, agent_id)
     if count < settings.moderation_ban_block_threshold:
-        return False
+        return 0
     # No unique constraint on bans(agent_id): two concurrent BLOCKs could race and
     # insert two rows. Acceptable at beta scale (agent still gets banned; operator
     # can lift duplicates). Add ON CONFLICT if this moves to multi-worker production.
@@ -323,4 +324,4 @@ async def check_repeat_offender(pool: asyncpg.Pool, agent_id) -> bool:
         str(settings.moderation_ban_duration_hours),
     )
     logger.info("moderation: auto-banned agent %s (%d gate BLOCKs in window)", agent_id, count)
-    return True
+    return count

@@ -21,7 +21,7 @@ class TestAutoBan:
     async def test_under_threshold_no_ban(self, db_pool, clean_db, standard_agent):
         await _log(db_pool, standard_agent["id"])
         await _log(db_pool, standard_agent["id"])
-        assert await check_repeat_offender(db_pool, standard_agent["id"]) is False
+        assert await check_repeat_offender(db_pool, standard_agent["id"]) == 0
         n = await db_pool.fetchval(
             "SELECT COUNT(*) FROM bans WHERE agent_id = $1", standard_agent["id"]
         )
@@ -31,7 +31,7 @@ class TestAutoBan:
     async def test_threshold_triggers_temp_ban(self, db_pool, clean_db, standard_agent):
         for _ in range(3):
             await _log(db_pool, standard_agent["id"])
-        assert await check_repeat_offender(db_pool, standard_agent["id"]) is True
+        assert await check_repeat_offender(db_pool, standard_agent["id"]) == 3
         ban = await db_pool.fetchrow(
             "SELECT reason, expires_at, issued_by FROM bans WHERE agent_id = $1",
             standard_agent["id"],
@@ -51,8 +51,8 @@ class TestAutoBan:
     async def test_existing_ban_not_duplicated(self, db_pool, clean_db, standard_agent):
         for _ in range(3):
             await _log(db_pool, standard_agent["id"])
-        assert await check_repeat_offender(db_pool, standard_agent["id"]) is True
-        assert await check_repeat_offender(db_pool, standard_agent["id"]) is False
+        assert await check_repeat_offender(db_pool, standard_agent["id"]) == 3
+        assert await check_repeat_offender(db_pool, standard_agent["id"]) == 0
         n = await db_pool.fetchval(
             "SELECT COUNT(*) FROM bans WHERE agent_id = $1", standard_agent["id"]
         )
