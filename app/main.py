@@ -33,6 +33,10 @@ from app.services.circuit_breaker import (
     start_circuit_breaker_worker,
     stop_circuit_breaker_worker,
 )
+from app.services.moderation_timeout import (
+    start_moderation_timeout_worker,
+    stop_moderation_timeout_worker,
+)
 from app.services.post_expiry import start_post_expiry_worker, stop_post_expiry_worker
 from app.services.system_metrics import (
     start_system_metrics_worker,
@@ -62,6 +66,11 @@ async def lifespan(app: FastAPI):
     await start_post_expiry_worker(
         pool, interval=settings.post_expiry_interval, ttl_days=settings.post_expiry_ttl_days
     )
+    await start_moderation_timeout_worker(
+        pool,
+        interval=settings.moderation_timeout_check_interval,
+        timeout_hours=settings.moderation_timeout_hours,
+    )
     await start_system_metrics_worker(pool, interval=settings.system_metrics_interval)
     yield
     await stop_blind_phase_worker()
@@ -71,6 +80,7 @@ async def lifespan(app: FastAPI):
     await stop_corpus_promote_worker()
     await stop_circuit_breaker_worker()
     await stop_post_expiry_worker()
+    await stop_moderation_timeout_worker()
     await stop_system_metrics_worker()
     await close_pool()
 
