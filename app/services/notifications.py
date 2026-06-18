@@ -6,7 +6,9 @@ returns a bool (True = a send was attempted and accepted).
 """
 from __future__ import annotations
 
+import html
 import logging
+from uuid import UUID
 
 import httpx
 
@@ -49,12 +51,12 @@ def _dash() -> str:
     return f"\n{settings.conclave_dashboard_url}" if settings.conclave_dashboard_url else ""
 
 
-async def notify_escalation(*, target_type: str, queue_id, reason: str, preview: str) -> bool:
+async def notify_escalation(*, target_type: str, queue_id: str | UUID, reason: str, preview: str) -> bool:
     text = (
         "\U0001F7E0 <b>Conclave moderation: ESCALATE</b>\n"
         f"A {target_type} is held for review (auto-blocks in {settings.moderation_timeout_hours}h).\n"
-        f"Reason: {reason}\n"
-        f"Preview: {(preview or '')[:200]}\n"
+        f"Reason: {html.escape(reason or '')}\n"
+        f"Preview: {html.escape((preview or '')[:200])}\n"
         f"Queue id: <code>{queue_id}</code>"
         f"{_dash()}"
     )
@@ -71,7 +73,7 @@ async def notify_auto_block(*, count: int) -> bool:
     return await _send_telegram(text)
 
 
-async def notify_auto_ban(*, agent_id, block_count: int) -> bool:
+async def notify_auto_ban(*, agent_id: str | UUID, block_count: int) -> bool:
     text = (
         "\U0001F528 <b>Conclave moderation: auto-ban</b>\n"
         f"Agent <code>{agent_id}</code> hit {block_count} blocked submissions in "

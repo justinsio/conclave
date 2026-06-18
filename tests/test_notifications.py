@@ -1,6 +1,7 @@
 """Unit tests for outbound notifications (Telegram, notify-only)."""
 from __future__ import annotations
 
+import httpx
 import pytest
 
 from app.services import notifications
@@ -63,3 +64,17 @@ class TestNotifyFormatting:
         await notifications.notify_auto_ban(agent_id="a-1", block_count=3)
         assert "auto-ban" in captured["text"]
         assert "a-1" in captured["text"]
+
+
+class TestSendTelegramFailure:
+    @pytest.mark.asyncio
+    async def test_http_failure_returns_false_not_raises(self, monkeypatch):
+        monkeypatch.setattr(notifications.settings, "telegram_alerts_enabled", True)
+        monkeypatch.setattr(notifications.settings, "telegram_bot_token", "tok")
+        monkeypatch.setattr(notifications.settings, "telegram_chat_id", "123")
+
+        async def _fail(*_args, **_kwargs):
+            raise httpx.ConnectError("refused")
+
+        monkeypatch.setattr(httpx.AsyncClient, "post", _fail)
+        assert await notifications._send_telegram("hello") is False
