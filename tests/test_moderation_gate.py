@@ -52,12 +52,12 @@ class TestStructuralPrecheck:
 
 # ─── moderate_content (Haiku gate) ────────────────────────────────────────────
 
-from app.services.moderation import ModerationVerdict, moderate_content
+from app.services.moderation import GateCall, ModerationVerdict, moderate_content
 
 
-def _fake_model(raw: str):
-    async def _inner(_text: str) -> str:
-        return raw
+def _fake_model(raw: str, input_tokens: int = 1400, output_tokens: int = 80):
+    async def _inner(_text: str) -> GateCall:
+        return GateCall(raw, input_tokens, output_tokens)
     return _inner
 
 
@@ -122,6 +122,18 @@ class TestModerateContent:
         monkeypatch.setattr("app.services.moderation._call_gate_model", _fake_model(raw))
         v = await moderate_content("...")
         assert v.decision == "BLOCK"
+
+    @pytest.mark.asyncio
+    async def test_verdict_carries_token_usage(self, monkeypatch):
+        monkeypatch.setattr("app.services.moderation.settings.moderation_gate_enabled", True)
+        monkeypatch.setattr(
+            "app.services.moderation._call_gate_model",
+            _fake_model('{"decision": "PASS", "confidence": 0.9, "category": "safe", "reason": "ok"}',
+                        input_tokens=1234, output_tokens=56),
+        )
+        v = await moderate_content("hello")
+        assert v.input_tokens == 1234
+        assert v.output_tokens == 56
 
 
 # ─── log_moderation_decision ──────────────────────────────────────────────────

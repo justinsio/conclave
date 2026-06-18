@@ -204,23 +204,33 @@ Rules:
 
 
 @dataclass
+class GateCall:
+    text: str
+    input_tokens: int
+    output_tokens: int
+
+
+@dataclass
 class ModerationVerdict:
     decision: str            # PASS | BLOCK | ESCALATE
     confidence: float
     category: str | None
     reason: str
     model: str
+    input_tokens: int = 0
+    output_tokens: int = 0
 
 
-async def _call_gate_model(text: str) -> str:
-    """Single mockable boundary to the Haiku API. Returns the raw model text."""
+async def _call_gate_model(text: str) -> GateCall:
+    """Single mockable boundary to the Haiku API. Returns text + token usage."""
     client = AsyncAnthropic(api_key=settings.anthropic_api_key)
     resp = await client.messages.create(
         model=settings.moderation_gate_model,
         max_tokens=256,
         messages=[{"role": "user", "content": _GATE_PROMPT.format(content=text)}],
     )
-    return "".join(b.text for b in resp.content if getattr(b, "type", None) == "text")
+    text_out = "".join(b.text for b in resp.content if getattr(b, "type", None) == "text")
+    return GateCall(text_out, resp.usage.input_tokens, resp.usage.output_tokens)
 
 
 def _validate_verdict(raw: str, model: str) -> ModerationVerdict:
@@ -252,11 +262,16 @@ async def moderate_content(text: str) -> ModerationVerdict:
     if not settings.moderation_gate_enabled:
         return ModerationVerdict("PASS", 1.0, "safe", "gate disabled (dev)", "disabled")
     try:
-        raw = await _call_gate_model(text)
+        call = await _call_gate_model(text)
     except Exception as exc:  # noqa: BLE001 — any failure must fail safe
         logger.warning("moderation gate: model call failed (%s) — ESCALATE", exc)
-        return ModerationVerdict("ESCALATE", 0.0, "uncertain", "gate_call_failed", settings.moderation_gate_model)
-    return _validate_verdict(raw, settings.moderation_gate_model)
+        return ModerationVerdict(
+            "ESCALATE", 0.0, "uncertain", "gate_call_failed", settings.moderation_gate_model
+        )
+    verdict = _validate_verdict(call.text, settings.moderation_gate_model)
+    verdict.input_tokens = call.input_tokens
+    verdict.output_tokens = call.output_tokens
+    return verdict
 
 
 async def log_moderation_decision(
