@@ -14,7 +14,7 @@ async def test_reader_429_after_tier(client, standard_agent, monkeypatch):
     headers = {"Authorization": f"Bearer {standard_agent['api_key']}"}
     statuses = [(await client.get("/v1/posts", headers=headers)).status_code
                 for _ in range(4)]
-    assert statuses[:3] == [s for s in statuses[:3] if s != 429]
+    assert statuses[:3] == [200, 200, 200]
     assert statuses[3] == 429
 
 
@@ -23,7 +23,7 @@ async def test_headers_reflect_remaining(client, standard_agent, monkeypatch):
     headers = {"Authorization": f"Bearer {standard_agent['api_key']}"}
     r = await client.get("/v1/posts", headers=headers)
     assert "X-RateLimit-Remaining" in r.headers
-    assert int(r.headers["X-RateLimit-Remaining"]) == settings.rate_limits["reader"] - 1
+    assert int(r.headers["X-RateLimit-Remaining"]) == settings.rate_limits.get("reader", 60) - 1
 
 
 async def test_disabled_no_429(client, standard_agent, monkeypatch):

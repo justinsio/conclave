@@ -113,6 +113,10 @@ async def require_agent(
         raise HTTPException(403, "Invalid auth header")
     api_key = authorization.removeprefix("Bearer ")
     agent = await _lookup_agent(api_key, pool)
+    # Rate-limit BEFORE the rules/trial 403 checks below: every authenticated
+    # request must be counted, otherwise a client with a stale rules version or
+    # an expired trial would short-circuit at the 403 and bypass the limiter,
+    # generating unbounded 403 load. Abuse protection counts all requests.
     await enforce_rate_limit(request, agent["id"], agent["plan"], pool)
 
     if agent.get("rules_version_acknowledged") != settings.rules_version:
