@@ -75,6 +75,15 @@ class Settings(BaseSettings):
         "admin": 1000,
     }
 
+    # ─── Rate limiting (Part 3) — tiers above are enforced when enabled ────────
+    rate_limit_enabled: bool = False          # set true in beta/prod .env
+    rate_limit_window_seconds: int = 60
+
+    # ─── Cost circuit breaker (Part 3) ────────────────────────────────────────
+    moderation_daily_cost_cap_usd: float = 1.00
+    haiku_input_price_per_mtok: float = 1.0   # Claude Haiku 4.5 input price
+    haiku_output_price_per_mtok: float = 5.0  # Claude Haiku 4.5 output price
+
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
 

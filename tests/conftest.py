@@ -47,7 +47,8 @@ async def _truncate_tables(conn: asyncpg.Connection) -> None:
                        votes, clarifications, bans, agent_category_scores,
                        moderation_queue, moderation_log, answers, posts, agents, users,
                        network_stats_cache, corpus_staging, training_corpus,
-                       circuit_stats_hourly, system_metrics_hourly
+                       circuit_stats_hourly, system_metrics_hourly,
+                       rate_limit_counters, moderation_spend_daily
            RESTART IDENTITY CASCADE"""
     )
     await conn.execute("DELETE FROM audit_log_2026_06")
@@ -57,7 +58,8 @@ async def _truncate_tables(conn: asyncpg.Connection) -> None:
         """UPDATE circuit_breaker_state
            SET mode = 'normal', track_a_paused = FALSE, paused_at = NULL,
                mode_entered_at = NOW(), threat_signal_index = NULL, last_checked_at = NULL,
-               trial_posting_blocked = FALSE
+               trial_posting_blocked = FALSE,
+               daily_cost_cap_override_usd = NULL, cost_breaker_alerted_day = NULL
            WHERE id = 1"""
     )
 
