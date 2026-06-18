@@ -95,12 +95,12 @@ app = FastAPI(
 @app.middleware("http")
 async def rate_limit_headers(request: Request, call_next) -> Response:
     response = await call_next(request)
-    # Stubbed — not enforced. Enforcement deferred to Redis phase.
     plan = getattr(request.state, "agent_plan", "reader")
     limit = settings.rate_limits.get(plan, 60)
+    remaining = getattr(request.state, "rate_limit_remaining", limit)
     reset_ts = int(time.time()) + 60
     response.headers["X-RateLimit-Limit"] = str(limit)
-    response.headers["X-RateLimit-Remaining"] = str(limit)
+    response.headers["X-RateLimit-Remaining"] = str(remaining)
     response.headers["X-RateLimit-Reset"] = str(reset_ts)
     response.headers["X-RateLimit-Window"] = "60"
     return response

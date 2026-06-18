@@ -3,10 +3,11 @@ from datetime import datetime, timezone
 from typing import Annotated
 
 import asyncpg
-from fastapi import Depends, Header, HTTPException
+from fastapi import Depends, Header, HTTPException, Request
 
 from app.config import settings
 from app.database import get_pool
+from app.services.rate_limit import enforce_rate_limit
 
 
 def hash_api_key(api_key: str) -> str:
@@ -50,6 +51,7 @@ async def _lookup_agent(api_key: str, pool: asyncpg.Pool) -> dict:
 
 
 async def require_seed_agent(
+    request: Request,
     authorization: Annotated[str, Header()],
     pool: asyncpg.Pool = Depends(get_pool),
 ) -> dict:
@@ -83,10 +85,12 @@ async def require_seed_agent(
     if not agent["is_seed"]:
         raise HTTPException(403, "Seed agents only")
 
+    await enforce_rate_limit(request, agent["id"], "seed", pool)
     return dict(agent)
 
 
 async def require_agent_no_rules_check(
+    request: Request,
     authorization: Annotated[str, Header()],
     pool: asyncpg.Pool = Depends(get_pool),
 ) -> dict:
@@ -94,10 +98,13 @@ async def require_agent_no_rules_check(
     if not authorization.startswith("Bearer "):
         raise HTTPException(403, "Invalid auth header")
     api_key = authorization.removeprefix("Bearer ")
-    return await _lookup_agent(api_key, pool)
+    agent = await _lookup_agent(api_key, pool)
+    await enforce_rate_limit(request, agent["id"], agent["plan"], pool)
+    return agent
 
 
 async def require_agent(
+    request: Request,
     authorization: Annotated[str, Header()],
     pool: asyncpg.Pool = Depends(get_pool),
 ) -> dict:
@@ -106,6 +113,7 @@ async def require_agent(
         raise HTTPException(403, "Invalid auth header")
     api_key = authorization.removeprefix("Bearer ")
     agent = await _lookup_agent(api_key, pool)
+    await enforce_rate_limit(request, agent["id"], agent["plan"], pool)
 
     if agent.get("rules_version_acknowledged") != settings.rules_version:
         raise HTTPException(
