@@ -16,6 +16,7 @@ async def _log(pool, agent_id, *, stage="gate", decision="BLOCK"):
 
 
 class TestAutoBan:
+    # These counts assume settings.moderation_ban_block_threshold == 3 (the default).
     @pytest.mark.asyncio
     async def test_under_threshold_no_ban(self, db_pool, clean_db, standard_agent):
         await _log(db_pool, standard_agent["id"])

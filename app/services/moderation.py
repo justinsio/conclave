@@ -6,6 +6,7 @@ import logging
 import re
 from dataclasses import dataclass
 
+import asyncpg
 import httpx
 from anthropic import AsyncAnthropic
 
@@ -277,7 +278,7 @@ async def log_moderation_decision(
 # ─── Conservative repeat-offender auto-ban (Part 2) ─────────────────────────────
 
 
-async def count_recent_gate_blocks(pool, agent_id) -> int:
+async def count_recent_gate_blocks(pool: asyncpg.Pool, agent_id) -> int:
     """Count this agent's gate BLOCK verdicts within the ban window.
 
     Only stage='gate' decision='BLOCK' counts — structural rejects and ESCALATEs
@@ -292,7 +293,8 @@ async def count_recent_gate_blocks(pool, agent_id) -> int:
     return int(row["n"])
 
 
-async def has_active_ban(pool, agent_id) -> bool:
+async def has_active_ban(pool: asyncpg.Pool, agent_id) -> bool:
+    """True if the agent has a currently-active ban (permanent = NULL expiry)."""
     row = await pool.fetchrow(
         """SELECT 1 FROM bans
             WHERE agent_id = $1 AND (expires_at IS NULL OR expires_at > NOW())
@@ -302,7 +304,7 @@ async def has_active_ban(pool, agent_id) -> bool:
     return row is not None
 
 
-async def check_repeat_offender(pool, agent_id) -> bool:
+async def check_repeat_offender(pool: asyncpg.Pool, agent_id) -> bool:
     """If the agent has >= threshold gate BLOCKs in the window and isn't already
     banned, insert a temp ban. Returns True only if a new ban was issued."""
     if await has_active_ban(pool, agent_id):
@@ -310,6 +312,9 @@ async def check_repeat_offender(pool, agent_id) -> bool:
     count = await count_recent_gate_blocks(pool, agent_id)
     if count < settings.moderation_ban_block_threshold:
         return False
+    # No unique constraint on bans(agent_id): two concurrent BLOCKs could race and
+    # insert two rows. Acceptable at beta scale (agent still gets banned; operator
+    # can lift duplicates). Add ON CONFLICT if this moves to multi-worker production.
     await pool.execute(
         """INSERT INTO bans (agent_id, reason, expires_at, issued_by)
            VALUES ($1, $2, NOW() + ($3 || ' hours')::INTERVAL, 'moderation_ai')""",
