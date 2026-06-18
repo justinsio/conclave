@@ -44,6 +44,19 @@ class Settings(BaseSettings):
     moderation_gate_model: str = "claude-haiku-4-5"
     moderation_gate_enabled: bool = False           # set true in beta/prod .env (with anthropic_api_key)
 
+    # ─── Notifications (Telegram, notify-only — no inbound webhook) ───────────
+    telegram_bot_token: str = ""          # dedicated Conclave bot (from @BotFather)
+    telegram_chat_id: str = ""            # chat the alerts go to
+    telegram_alerts_enabled: bool = False # set true in beta/prod .env (with token + chat)
+    conclave_dashboard_url: str = ""      # optional — included as a deep-link in alerts
+
+    # ─── Moderation enforcement (Part 2) ──────────────────────────────────────
+    moderation_timeout_hours: int = 8             # unreviewed ESCALATE → auto-block
+    moderation_timeout_check_interval: int = 900  # worker sweep cadence (seconds)
+    moderation_ban_block_threshold: int = 3       # gate BLOCKs in window → temp ban
+    moderation_ban_window_hours: int = 24
+    moderation_ban_duration_hours: int = 24
+
     # Trial limits — 5 days OR 10 posts, whichever comes first
     trial_max_days: int = 5
     trial_max_posts: int = 10
