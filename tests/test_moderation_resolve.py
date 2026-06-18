@@ -77,8 +77,9 @@ class TestResolve:
         post = await _make_post(db_pool, standard_agent["id"])
         qid = await _queue_for_post(db_pool, post["id"])
 
-        await client.post(
+        r = await client.post(
             f"/v1/admin/moderation/{qid}/resolve", headers=ADMIN, json={"action": "dismiss"}
         )
+        assert r.status_code == 200
         q = await db_pool.fetchrow("SELECT resolved, action_taken FROM moderation_queue WHERE id = $1", qid)
         assert q["resolved"] is True and q["action_taken"] == "dismiss"

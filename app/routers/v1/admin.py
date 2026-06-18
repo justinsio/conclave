@@ -1,4 +1,5 @@
 from __future__ import annotations
+import logging
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
@@ -14,6 +15,8 @@ from app.models import (
     ModerationResolveRequest, ModerationResolveResponse,
     RestoreResponse,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/v1/admin", tags=["admin"])
 
@@ -34,6 +37,8 @@ async def moderation_queue(
 
 
 async def _target_author(pool, target_id, target_type):
+    if target_type not in ("post", "answer"):
+        return None
     table = "posts" if target_type == "post" else "answers"
     row = await pool.fetchrow(f"SELECT agent_id FROM {table} WHERE id = $1", target_id)
     return row["agent_id"] if row else None
@@ -73,6 +78,9 @@ async def resolve_moderation(
             await pool.execute(
                 "UPDATE agents SET is_shadow_banned = TRUE WHERE id = $1", author_id
             )
+        else:
+            logger.warning("resolve %s: shadow_ban skipped — author not found for %s %s",
+                           escalation_id, target_type, target_id)
     elif body.action == "ban_agent":
         if author_id:
             await pool.execute(
@@ -82,6 +90,9 @@ async def resolve_moderation(
                 body.notes or "Banned via moderation queue",
                 str(settings.moderation_ban_duration_hours),
             )
+        else:
+            logger.warning("resolve %s: ban_agent skipped — author not found for %s %s",
+                           escalation_id, target_type, target_id)
 
     now = datetime.now(timezone.utc)
     await pool.execute(
