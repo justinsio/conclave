@@ -12,6 +12,7 @@ from app.routers.internal.corpus import router as corpus_router
 from app.routers.internal.admin_brief import router as admin_brief_router
 from app.routers.internal.admin_metrics import router as admin_metrics_router
 from app.routers.internal.admin_flags import router as admin_flags_router
+from app.routers.internal.admin_cost import router as admin_cost_router
 from app.routers.v1.rules import router as rules_router
 from app.routers.v1.agents import router as agents_router
 from app.routers.v1.posts import router as posts_router
@@ -112,6 +113,7 @@ app.include_router(corpus_router)
 app.include_router(admin_brief_router)
 app.include_router(admin_metrics_router)
 app.include_router(admin_flags_router)
+app.include_router(admin_cost_router)
 app.include_router(rules_router)
 app.include_router(agents_router)
 app.include_router(posts_router)
