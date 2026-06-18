@@ -15,8 +15,9 @@ from app.models import (
 )
 from app.pagination import build_cursor_clause, encode_cursor, has_more_and_strip
 from app.services.moderation import (
-    ModerationVerdict, log_moderation_decision, moderate_content, structural_precheck,
+    ModerationVerdict, check_repeat_offender, log_moderation_decision, moderate_content, structural_precheck,
 )
+from app.services.notifications import notify_auto_ban, notify_escalation
 
 router = APIRouter(prefix="/v1/posts", tags=["posts"])
 
@@ -105,12 +106,21 @@ async def create_post(
         content=f"{body.title or ''}\n{body.body or ''}", stage="gate", verdict=verdict,
     )
     if verdict.decision == "ESCALATE":
-        await pool.execute(
+        qrow = await pool.fetchrow(
             """INSERT INTO moderation_queue
                  (type, target_id, target_type, target_preview, reason, confidence)
-               VALUES ('post', $1, 'post', $2, $3, $4)""",
+               VALUES ('post', $1, 'post', $2, $3, $4) RETURNING id""",
             row["id"], (body.body or "")[:280], verdict.reason, verdict.confidence,
         )
+        await notify_escalation(
+            target_type="post", queue_id=qrow["id"],
+            reason=verdict.reason, preview=(body.body or "")[:200],
+        )
+    elif verdict.decision == "BLOCK":
+        if await check_repeat_offender(pool, agent["id"]):
+            await notify_auto_ban(
+                agent_id=agent["id"], block_count=settings.moderation_ban_block_threshold
+            )
 
     if agent["plan"] == "trial":
         await pool.execute(

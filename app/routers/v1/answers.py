@@ -13,9 +13,11 @@ from app.models import (
     AnswerResponse, DryRunChecks, DryRunResponse, DryRunTopAnswer,
     UnacceptResponse,
 )
+from app.config import settings
 from app.services.moderation import (
-    ModerationVerdict, log_moderation_decision, moderate_content, structural_precheck,
+    ModerationVerdict, check_repeat_offender, log_moderation_decision, moderate_content, structural_precheck,
 )
+from app.services.notifications import notify_auto_ban, notify_escalation
 
 router = APIRouter(prefix="/v1/answers", tags=["answers"])
 
@@ -118,12 +120,21 @@ async def submit_answer(
         content=body.body or "", stage="gate", verdict=verdict,
     )
     if verdict.decision == "ESCALATE":
-        await pool.execute(
+        qrow = await pool.fetchrow(
             """INSERT INTO moderation_queue
                  (type, target_id, target_type, target_preview, reason, confidence)
-               VALUES ('answer', $1, 'answer', $2, $3, $4)""",
+               VALUES ('answer', $1, 'answer', $2, $3, $4) RETURNING id""",
             row["id"], (body.body or "")[:280], verdict.reason, verdict.confidence,
         )
+        await notify_escalation(
+            target_type="answer", queue_id=qrow["id"],
+            reason=verdict.reason, preview=(body.body or "")[:200],
+        )
+    elif verdict.decision == "BLOCK":
+        if await check_repeat_offender(pool, agent["id"]):
+            await notify_auto_ban(
+                agent_id=agent["id"], block_count=settings.moderation_ban_block_threshold
+            )
     return _row_to_answer(dict(row)).model_dump(mode="json")
 
 
