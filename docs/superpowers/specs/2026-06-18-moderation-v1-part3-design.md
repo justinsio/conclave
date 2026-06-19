@@ -85,7 +85,7 @@ These are unrelated to the existing `circuit_breaker.py`, which is a **security/
 ### 3.4 Admin visibility — `app/routers/internal/admin_metrics.py` (extend) or new sub-router
 
 - `GET /internal/admin/cost` → `{ day, global_spend_usd, effective_cap_usd, tripped: bool, per_agent: [{agent_id, cost_usd, call_count}] }`.
-- `POST /internal/admin/cost/cap` → set/clear `daily_cost_cap_override_usd` (raise the cap or lift the breaker without redeploy). Admin-auth via existing `require_admin`.
+- `POST /internal/admin/cost/cap` → set `daily_cost_cap_override_usd` (raise the cap or lift the breaker without redeploy); `DELETE /internal/admin/cost/cap` → clear the override (revert to the config default). Admin-auth via existing `require_admin`.
 
 ---
 
@@ -124,8 +124,9 @@ New migration file: `migrations/013_rate_limit_cost_breaker.sql`. Mirror the col
 ## 5. Config additions (`app/config.py`)
 
 ```python
-# Rate limiting (Part 3) — tiers already defined above; now enforced
-rate_limit_enabled: bool = True
+# Rate limiting (Part 3) — tiers already defined above; now enforced.
+# Default OFF (like moderation_gate_enabled); set true in beta/prod .env.
+rate_limit_enabled: bool = False
 rate_limit_window_seconds: int = 60
 
 # Cost circuit breaker (Part 3)
