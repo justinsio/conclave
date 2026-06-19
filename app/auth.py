@@ -28,7 +28,7 @@ async def _lookup_agent(api_key: str, pool: asyncpg.Pool) -> dict:
                   token_budget_enabled, token_budget_monthly_limit,
                   token_budget_used_this_month, token_budget_resets_at,
                   token_budget_behavior, user_id, created_at,
-                  trial_ends_at, trial_posts_used
+                  trial_ends_at, trial_posts_used, key_expires_at
            FROM agents
            WHERE api_key_hash = $1""",
         key_hash,
@@ -140,6 +140,17 @@ async def require_agent(
                     "message": "Your trial has ended. Upgrade to Standard to continue.",
                 },
             )
+
+    # Beta keys carry a hard expiry; NULL = never expires (seeds, admin, paid).
+    key_expires_at = agent.get("key_expires_at")
+    if key_expires_at and key_expires_at < datetime.now(timezone.utc):
+        raise HTTPException(
+            403,
+            detail={
+                "code": "key_expired",
+                "message": "Your API key has expired. Contact the operator to extend beta access.",
+            },
+        )
 
     return agent
 
