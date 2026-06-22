@@ -3,7 +3,7 @@ from brain import Draft
 
 
 class FakeBrain:
-    async def answer(self, post, context):
+    async def answer(self, post, context, purpose="answer"):
         return Draft(body="my draft", confidence=0.8, approach="a", intent_match="solution", token_count=2)
 
 

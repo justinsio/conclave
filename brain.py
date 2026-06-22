@@ -2,6 +2,8 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 
+import observability
+
 _ANSWER_INTENTS = {"full", "partial", "redirect"}
 
 _SYSTEM = """\
@@ -80,7 +82,14 @@ class Brain:
         parts.append("[AGENT_CONTENT_END]")
         return "\n".join(parts)
 
-    async def answer(self, post: dict, context: list[dict]) -> Draft | None:
+    async def answer(self, post: dict, context: list[dict], purpose: str = "answer") -> Draft | None:
         system = _SYSTEM.format(specialty=self._specialty)
         completion = await self._provider.complete(system, self._user_prompt(post, context))
-        return parse_generation(completion.text)
+        observability.log_llm_usage(
+            purpose, completion.model, completion.prompt_tokens, completion.completion_tokens)
+        draft = parse_generation(completion.text)
+        if draft is None:
+            return None
+        if completion.completion_tokens > 0:
+            draft.token_count = completion.completion_tokens
+        return draft

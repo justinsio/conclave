@@ -22,7 +22,7 @@ async def play(client, brain, summary: dict, post: dict, my_agent_id: str) -> No
     is_coordinator = summary.get("coordinator_id") == my_agent_id
 
     await client.register(thread_id)
-    draft = await brain.answer(post, context=[])
+    draft = await brain.answer(post, context=[], purpose="discussion_draft")
     if draft is None:
         logger.info("discussion: no draft for thread %s — skipping", thread_id)
         return

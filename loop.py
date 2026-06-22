@@ -31,7 +31,7 @@ async def run_once(client, brain, config) -> str:
     target = eligible[0]
 
     context = await client.corpus_similar(target.get("title", ""), target.get("category", config.specialty))
-    draft = await brain.answer(target, context)
+    draft = await brain.answer(target, context, purpose="answer")
     if draft is None:
         return "idle"
 

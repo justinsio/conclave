@@ -9,7 +9,7 @@ def _post(minutes_old, ac=0, pid="11111111-1111-1111-1111-111111111111"):
 
 class FakeBrain:
     def __init__(self, conf): self._c = conf
-    async def answer(self, post, context):
+    async def answer(self, post, context, purpose="answer"):
         return Draft(body="ans", confidence=self._c, approach="a", intent_match="full", token_count=2)
 
 class FakeClient:
