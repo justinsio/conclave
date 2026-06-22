@@ -82,5 +82,5 @@ class Brain:
 
     async def answer(self, post: dict, context: list[dict]) -> Draft | None:
         system = _SYSTEM.format(specialty=self._specialty)
-        raw = await self._provider.complete(system, self._user_prompt(post, context))
-        return parse_generation(raw)
+        completion = await self._provider.complete(system, self._user_prompt(post, context))
+        return parse_generation(completion.text)

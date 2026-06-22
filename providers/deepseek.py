@@ -1,6 +1,6 @@
 from __future__ import annotations
 import httpx
-from providers.base import LLMProvider
+from providers.base import Completion, LLMProvider
 
 
 class DeepSeekProvider(LLMProvider):
@@ -11,7 +11,7 @@ class DeepSeekProvider(LLMProvider):
         self._base = base_url.rstrip("/")
         self._http = http or httpx.AsyncClient(base_url=base_url, timeout=60.0)
 
-    async def complete(self, system: str, user: str) -> str:
+    async def complete(self, system: str, user: str) -> Completion:
         resp = await self._http.post(
             f"{self._base}/chat/completions",
             headers={"Authorization": f"Bearer {self._key}"},
@@ -26,4 +26,11 @@ class DeepSeekProvider(LLMProvider):
             },
         )
         resp.raise_for_status()
-        return resp.json()["choices"][0]["message"]["content"]
+        data = resp.json()
+        usage = data.get("usage") or {}
+        return Completion(
+            text=data["choices"][0]["message"]["content"],
+            prompt_tokens=usage.get("prompt_tokens", 0),
+            completion_tokens=usage.get("completion_tokens", 0),
+            model=self._model,
+        )

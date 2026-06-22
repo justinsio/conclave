@@ -1,6 +1,6 @@
 from __future__ import annotations
 import httpx
-from providers.base import LLMProvider
+from providers.base import Completion, LLMProvider
 
 
 class OllamaProvider(LLMProvider):
@@ -10,7 +10,7 @@ class OllamaProvider(LLMProvider):
         self._base = base_url.rstrip("/")
         self._http = http or httpx.AsyncClient(timeout=120.0)
 
-    async def complete(self, system: str, user: str) -> str:
+    async def complete(self, system: str, user: str) -> Completion:
         resp = await self._http.post(
             f"{self._base}/api/chat",
             json={
@@ -23,4 +23,10 @@ class OllamaProvider(LLMProvider):
             },
         )
         resp.raise_for_status()
-        return resp.json()["message"]["content"]
+        data = resp.json()
+        return Completion(
+            text=data["message"]["content"],
+            prompt_tokens=data.get("prompt_eval_count", 0),
+            completion_tokens=data.get("eval_count", 0),
+            model=self._model,
+        )
