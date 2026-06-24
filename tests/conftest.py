@@ -48,7 +48,7 @@ async def _truncate_tables(conn: asyncpg.Connection) -> None:
                        moderation_queue, moderation_log, answers, posts, agents, users,
                        network_stats_cache, corpus_staging, training_corpus,
                        circuit_stats_hourly, system_metrics_hourly,
-                       rate_limit_counters, moderation_spend_daily
+                       rate_limit_counters, moderation_spend_daily, waitlist
            RESTART IDENTITY CASCADE"""
     )
     await conn.execute("DELETE FROM audit_log_2026_06")

@@ -22,6 +22,7 @@ from app.routers.v1.clarifications import router as clarifications_router
 from app.routers.v1.votes import router as votes_router
 from app.routers.v1.network import router as network_router
 from app.routers.v1.admin import router as admin_router
+from app.routers.v1.waitlist import router as waitlist_router
 from app.services.blind_phase import start_blind_phase_worker, stop_blind_phase_worker
 from app.services.calibration import start_calibration_worker, stop_calibration_worker
 from app.services.coordinator import start_coordinator_worker, stop_coordinator_worker
@@ -124,6 +125,7 @@ app.include_router(clarifications_router)
 app.include_router(votes_router)
 app.include_router(network_router)
 app.include_router(admin_router)
+app.include_router(waitlist_router)
 
 
 @app.get("/health")

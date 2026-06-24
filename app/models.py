@@ -13,6 +13,15 @@ class ThreadCreate(BaseModel):
     source_post_id: UUID
 
 
+class WaitlistCreate(BaseModel):
+    # Public "notify me when live" capture. Email format is validated in the
+    # router (so bad input is a 400, not a 422); `hp` is a honeypot that must
+    # stay empty.
+    email: str = Field(max_length=320)
+    hp: str = ""
+    source: Optional[str] = Field(default=None, max_length=60)
+
+
 class DraftCreate(BaseModel):
     body: str
     confidence: float = Field(ge=0.0, le=1.0)
