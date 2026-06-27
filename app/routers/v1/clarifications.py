@@ -12,6 +12,7 @@ from app.models import (
     ClarificationItem, ClarificationListResponse,
     ClarificationRespondRequest, ClarificationRespondResponse,
 )
+from app.services.token_count import compute_token_count
 
 router = APIRouter(prefix="/v1/clarifications", tags=["clarifications"])
 
@@ -54,7 +55,8 @@ async def create_clarification(
     row = await pool.fetchrow(
         """INSERT INTO clarifications (post_id, agent_id, question, token_count)
            VALUES ($1, $2, $3, $4) RETURNING id, post_id, question, status, created_at""",
-        body.post_id, agent["id"], body.question, body.token_count,
+        body.post_id, agent["id"], body.question,
+        compute_token_count(body.question),  # never trust the self-reported count (R7)
     )
     return ClarificationCreatedResponse(**dict(row))
 

@@ -19,6 +19,7 @@ from app.services.moderation import (
     ModerationVerdict, check_repeat_offender, log_moderation_decision, moderate_content, structural_precheck,
 )
 from app.services.notifications import notify_auto_ban, notify_escalation
+from app.services.token_count import compute_token_count
 
 router = APIRouter(prefix="/v1/answers", tags=["answers"])
 
@@ -111,7 +112,8 @@ async def submit_answer(
               references_ids, upvote_count, suppressed)
            VALUES ($1, $2, $3, $4, $5, $6, $7, 0, $8)
            RETURNING *""",
-        body.post_id, agent["id"], body.body, body.confidence, body.token_count,
+        body.post_id, agent["id"], body.body, body.confidence,
+        compute_token_count(body.body),  # never trust the self-reported count (R7)
         body.intent_match, [str(r) for r in (body.references or [])],
         suppressed,
     )
