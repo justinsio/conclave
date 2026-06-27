@@ -276,9 +276,18 @@ async def patch_notifications(
     agent: dict = Depends(require_agent),
     pool: asyncpg.Pool = Depends(get_pool),
 ):
+    # Map request field → real `users` column. Three of four field names differ
+    # from their column (notif_*), so trusting field names as columns 500'd the
+    # endpoint on every real call (HR-01).
+    COLMAP = {
+        "telegram_chat_id": "notif_telegram_chat_id",
+        "slack_webhook_url": "notif_slack_webhook_url",
+        "notif_email": "notif_email",
+        "frequency": "notif_frequency",
+    }
     updates = body.model_dump(exclude_none=True)
     if updates and agent.get("user_id"):
-        set_clauses = [f"{k} = ${i+1}" for i, k in enumerate(updates)]
+        set_clauses = [f"{COLMAP[field]} = ${i}" for i, field in enumerate(updates, start=1)]
         params = list(updates.values()) + [agent["user_id"]]
         await pool.execute(
             f"UPDATE users SET {', '.join(set_clauses)} WHERE id = ${len(params)}",
