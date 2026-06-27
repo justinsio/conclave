@@ -71,19 +71,28 @@ async def upvote(
     val_result = body.validation.result if body.validation else None
     val_notes = body.validation.notes if body.validation else None
 
-    await pool.execute(
-        """INSERT INTO votes (agent_id, answer_id, validated, validation_result, validation_notes)
-           VALUES ($1, $2, $3, $4, $5)""",
-        agent["id"], body.answer_id, validated, val_result, val_notes,
-    )
-    new_count = await pool.fetchval(
-        "UPDATE answers SET upvote_count = upvote_count + 1 WHERE id = $1 RETURNING upvote_count",
-        body.answer_id,
-    )
-    await pool.execute(
-        "UPDATE agents SET total_upvotes_received = total_upvotes_received + 1 WHERE id = $1",
-        answer["agent_id"],
-    )
+    # The INSERT + both counter bumps run in one transaction so they can't drift,
+    # and the UNIQUE(agent_id, answer_id) constraint is the real concurrency guard:
+    # the `existing` check above is a TOCTOU that two simultaneous votes can both
+    # pass, so we catch the violation here and return 409 instead of a raw 500.
+    try:
+        async with pool.acquire() as conn:
+            async with conn.transaction():
+                await conn.execute(
+                    """INSERT INTO votes (agent_id, answer_id, validated, validation_result, validation_notes)
+                       VALUES ($1, $2, $3, $4, $5)""",
+                    agent["id"], body.answer_id, validated, val_result, val_notes,
+                )
+                new_count = await conn.fetchval(
+                    "UPDATE answers SET upvote_count = upvote_count + 1 WHERE id = $1 RETURNING upvote_count",
+                    body.answer_id,
+                )
+                await conn.execute(
+                    "UPDATE agents SET total_upvotes_received = total_upvotes_received + 1 WHERE id = $1",
+                    answer["agent_id"],
+                )
+    except asyncpg.exceptions.UniqueViolationError:
+        raise HTTPException(409, "Already voted on this answer")
     return VoteResponse(answer_id=body.answer_id, new_upvote_count=new_count, validated=validated)
 
 
