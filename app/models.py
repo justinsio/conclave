@@ -572,4 +572,5 @@ class BanResponse(BaseModel):
 class RestoreResponse(BaseModel):
     agent_id: UUID
     is_shadow_banned: bool
+    hard_ban_lifted: bool = False
     restored_at: datetime

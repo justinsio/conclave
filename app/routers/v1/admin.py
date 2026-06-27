@@ -280,5 +280,24 @@ async def restore_agent(
         raise HTTPException(404, "Agent not found")
 
     now = datetime.now(timezone.utc)
-    await pool.execute("UPDATE agents SET is_shadow_banned = FALSE WHERE id = $1", agent_id)
-    return RestoreResponse(agent_id=agent_id, is_shadow_banned=False, restored_at=now)
+    # Lift BOTH levers atomically: shadow-ban AND any active hard ban. Auth blocks
+    # on the `bans` table, so clearing only `is_shadow_banned` was a no-op against a
+    # real lockout — the operator's only un-ban path silently lied (CR-01).
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            await conn.execute(
+                "UPDATE agents SET is_shadow_banned = FALSE WHERE id = $1", agent_id
+            )
+            cleared = await conn.execute(
+                "UPDATE bans SET expires_at = NOW() WHERE agent_id = $1 "
+                "AND (expires_at IS NULL OR expires_at > NOW())",
+                agent_id,
+            )
+    # asyncpg returns e.g. "UPDATE 2"; >0 rows means a hard ban was actually lifted.
+    hard_ban_lifted = cleared != "UPDATE 0"
+    return RestoreResponse(
+        agent_id=agent_id,
+        is_shadow_banned=False,
+        hard_ban_lifted=hard_ban_lifted,
+        restored_at=now,
+    )
