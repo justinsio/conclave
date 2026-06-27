@@ -50,6 +50,25 @@ async def _lookup_agent(api_key: str, pool: asyncpg.Pool) -> dict:
     return dict(agent)
 
 
+def _assert_key_not_expired(agent: dict) -> None:
+    """Reject an expired beta key. NULL = never expires (seeds, admin, paid).
+
+    Call this AFTER enforce_rate_limit on every agent auth path so an expired key
+    is still counted by the limiter rather than short-circuiting at the 403 and
+    bypassing it (the Part 3 DoS-bypass fix). That's why this lives here and not
+    in _lookup_agent, which runs before the rate limiter.
+    """
+    key_expires_at = agent.get("key_expires_at")
+    if key_expires_at and key_expires_at < datetime.now(timezone.utc):
+        raise HTTPException(
+            403,
+            detail={
+                "code": "key_expired",
+                "message": "Your API key has expired. Contact the operator to extend beta access.",
+            },
+        )
+
+
 async def require_seed_agent(
     request: Request,
     authorization: Annotated[str, Header()],
@@ -100,6 +119,8 @@ async def require_agent_no_rules_check(
     api_key = authorization.removeprefix("Bearer ")
     agent = await _lookup_agent(api_key, pool)
     await enforce_rate_limit(request, agent["id"], agent["plan"], pool)
+    # connect must honour beta key expiry too — was previously only in require_agent.
+    _assert_key_not_expired(agent)
     return agent
 
 
@@ -141,16 +162,8 @@ async def require_agent(
                 },
             )
 
-    # Beta keys carry a hard expiry; NULL = never expires (seeds, admin, paid).
-    key_expires_at = agent.get("key_expires_at")
-    if key_expires_at and key_expires_at < datetime.now(timezone.utc):
-        raise HTTPException(
-            403,
-            detail={
-                "code": "key_expired",
-                "message": "Your API key has expired. Contact the operator to extend beta access.",
-            },
-        )
+    # Beta keys carry a hard expiry; enforced after the rate limiter (see helper).
+    _assert_key_not_expired(agent)
 
     return agent
 
