@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 import asyncpg
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 
+from app.config import settings
 from app.database import get_pool
 from app.models import WaitlistCreate
 
@@ -18,11 +19,16 @@ IP_HOURLY_LIMIT = 5  # new sign-ups per IP per hour — a list-bombing guard
 
 
 def _client_ip(request: Request) -> str:
-    # Behind Cloudflare/Hetzner the real client is the first X-Forwarded-For hop.
-    xff = request.headers.get("x-forwarded-for")
-    if xff:
-        return xff.split(",")[0].strip()
-    return request.client.host if request.client else "unknown"
+    peer = request.client.host if request.client else "unknown"
+    # Trust X-Forwarded-For ONLY when the direct peer is a configured proxy
+    # (Cloudflare/Hetzner edge). Otherwise XFF is attacker-controlled and would
+    # let a spoofed hop per request defeat the per-IP cap, so key off the peer.
+    trusted = {ip.strip() for ip in settings.trusted_proxy_ips.split(",") if ip.strip()}
+    if peer in trusted:
+        xff = request.headers.get("x-forwarded-for")
+        if xff:
+            return xff.split(",")[0].strip()
+    return peer
 
 
 @router.post("/waitlist")

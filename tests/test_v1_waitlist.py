@@ -67,3 +67,21 @@ async def test_rate_limited_per_ip(client):
     # the 6th from the same IP trips the limit
     r = await client.post("/v1/waitlist", json={"email": "u5@example.com"}, headers=ip)
     assert r.status_code == 429
+
+
+async def test_spoofed_xff_does_not_bypass_rate_limit(client):
+    """HR-04 — X-Forwarded-For from an untrusted peer must be ignored, so an
+    attacker can't defeat the per-IP cap by forging a fresh hop each request."""
+    for i in range(5):
+        r = await client.post(
+            "/v1/waitlist", json={"email": f"s{i}@example.com"},
+            headers={"X-Forwarded-For": f"203.0.113.{i}"},
+        )
+        assert r.status_code == 201, f"signup {i} should pass, got {r.status_code}"
+    # A 6th with yet another spoofed hop is still throttled — the forged XFF is
+    # ignored and every request keys off the real (untrusted) peer.
+    r = await client.post(
+        "/v1/waitlist", json={"email": "s5@example.com"},
+        headers={"X-Forwarded-For": "198.51.100.42"},
+    )
+    assert r.status_code == 429

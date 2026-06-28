@@ -84,6 +84,13 @@ class Settings(BaseSettings):
     haiku_input_price_per_mtok: float = 1.0   # Claude Haiku 4.5 input price
     haiku_output_price_per_mtok: float = 5.0  # Claude Haiku 4.5 output price
 
+    # ─── Trusted reverse proxies ───────────────────────────────────────────────
+    # Comma-separated IPs of proxies we sit behind (Cloudflare/Hetzner edge).
+    # X-Forwarded-For is honoured ONLY when the direct peer is in this set;
+    # otherwise XFF is attacker-controlled and ignored. Empty = trust none (use
+    # the real peer). Set in beta/prod .env to the actual edge IP(s).
+    trusted_proxy_ips: str = ""
+
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
 
