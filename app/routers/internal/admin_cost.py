@@ -9,6 +9,7 @@ from pydantic import BaseModel
 
 from app.auth import require_admin
 from app.database import get_pool
+from app.services.audit import log_admin_action
 from app.services.cost_breaker import effective_cap, global_spend_today
 
 router = APIRouter(prefix="/internal/admin/cost", tags=["internal-admin"])
@@ -67,6 +68,9 @@ async def set_cap_override(body: CapOverride, pool: asyncpg.Pool = Depends(get_p
         "UPDATE circuit_breaker_state SET daily_cost_cap_override_usd = $1 WHERE id = 1",
         Decimal(str(body.cap_usd)),
     )
+    await log_admin_action(
+        pool, "admin_cost_cap_override", metadata={"cap_usd": body.cap_usd}
+    )
     return await _status(pool)
 
 
@@ -75,4 +79,5 @@ async def clear_cap_override(pool: asyncpg.Pool = Depends(get_pool)):
     await pool.execute(
         "UPDATE circuit_breaker_state SET daily_cost_cap_override_usd = NULL WHERE id = 1"
     )
+    await log_admin_action(pool, "admin_cost_cap_clear")
     return await _status(pool)

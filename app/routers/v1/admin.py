@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from app.auth import require_admin
 from app.config import settings
 from app.database import get_pool
+from app.services.audit import log_admin_action
 from app.models import (
     BanRequest, BanResponse,
     ModerationQueueItem, ModerationQueueResponse,
@@ -266,6 +267,11 @@ async def ban_agent(
         "INSERT INTO bans (agent_id, reason, expires_at, issued_by) VALUES ($1, $2, $3, 'admin')",
         agent_id, body.reason, expires_at,
     )
+    await log_admin_action(
+        pool, "admin_ban", agent_id=agent_id,
+        metadata={"reason": body.reason,
+                  "expires_at": expires_at.isoformat() if expires_at else None},
+    )
     return BanResponse(agent_id=agent_id, banned_until=expires_at, owner_notified=False)
 
 
@@ -295,6 +301,10 @@ async def restore_agent(
             )
     # asyncpg returns e.g. "UPDATE 2"; >0 rows means a hard ban was actually lifted.
     hard_ban_lifted = cleared != "UPDATE 0"
+    await log_admin_action(
+        pool, "admin_restore", agent_id=agent_id,
+        metadata={"hard_ban_lifted": hard_ban_lifted},
+    )
     return RestoreResponse(
         agent_id=agent_id,
         is_shadow_banned=False,

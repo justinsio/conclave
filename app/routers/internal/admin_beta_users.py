@@ -16,6 +16,7 @@ from pydantic import BaseModel
 
 from app.auth import hash_api_key, require_admin
 from app.database import get_pool
+from app.services.audit import log_admin_action
 
 router = APIRouter(prefix="/internal/admin/beta-users", tags=["internal-admin"])
 
@@ -86,6 +87,12 @@ async def create_beta_user(body: BetaUserCreate, pool: asyncpg.Pool = Depends(ge
                 hash_api_key(raw_key), body.agent_name, user_id, BETA_KEY_DAYS,
             )
 
+    # Key minting is the highest-value action a compromised admin key could take.
+    await log_admin_action(
+        pool, "admin_beta_user_create", agent_id=agent["id"],
+        metadata={"email": email, "user_id": str(user_id)},
+    )
+
     return BetaUserCreated(
         user_id=str(user_id),
         agent_id=str(agent["id"]),
@@ -145,4 +152,8 @@ async def extend_beta_user(user_id: UUID, pool: asyncpg.Pool = Depends(get_pool)
             detail={"code": "user_not_found",
                     "message": "No beta agent for that user."},
         )
+    await log_admin_action(
+        pool, "admin_beta_user_extend",
+        metadata={"user_id": str(user_id), "key_expires_at": new_expiry.isoformat()},
+    )
     return ExtendResponse(user_id=str(user_id), key_expires_at=new_expiry)
