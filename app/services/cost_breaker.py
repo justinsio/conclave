@@ -36,7 +36,14 @@ async def global_spend_today(pool: asyncpg.Pool) -> float:
 
 
 async def assert_cost_budget(pool: asyncpg.Pool) -> None:
-    """Raise 503 if today's global Haiku spend has reached the effective cap."""
+    """Raise 503 if today's global Haiku spend has reached the effective cap.
+
+    Best-effort ceiling: the check runs BEFORE the paid call and the spend is
+    recorded after, so concurrent in-flight calls can overshoot the cap by up to
+    (in-flight requests x per-call cost) before the breaker trips. Size the cap
+    with headroom. The trip/alert itself is judged on committed spend (see
+    record_gate_cost), so the breaker state is never wrong — only slightly late.
+    """
     if not settings.moderation_gate_enabled:
         return
     cap = await effective_cap(pool)
@@ -65,7 +72,6 @@ async def record_gate_cost(
     if input_tokens == 0 and output_tokens == 0:
         return
     cost = _cost_usd(input_tokens, output_tokens)
-    prev_total = await global_spend_today(pool)
     # cost_usd is NUMERIC; asyncpg requires Decimal (a float raises DataError).
     await pool.execute(
         """INSERT INTO moderation_spend_daily (day, agent_id, cost_usd, call_count)
@@ -75,10 +81,14 @@ async def record_gate_cost(
                          call_count = moderation_spend_daily.call_count + 1""",
         agent_id, Decimal(str(cost)),
     )
-    new_total = prev_total + cost
+    # Judge the crossing on the COMMITTED post-write total, not a stale pre-read +
+    # local add. Under concurrency, prev_total+cost can miss the crossing entirely
+    # (two writers each see spend < cap), leaving the cap silently un-alerted; the
+    # committed SUM after the write cannot (MR-04 / HR-05). The atomic once-per-day
+    # UPDATE below ensures only the first observer past the cap alerts.
+    new_total = await global_spend_today(pool)
     cap = await effective_cap(pool)
-    if prev_total < cap <= new_total:
-        # Atomic once-per-day guard: only the first crosser wins the UPDATE.
+    if new_total >= cap:
         won = await pool.fetchval(
             """UPDATE circuit_breaker_state
                   SET cost_breaker_alerted_day = CURRENT_DATE

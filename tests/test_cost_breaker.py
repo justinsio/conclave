@@ -96,3 +96,28 @@ async def test_crossing_alerts_once(db_pool, monkeypatch):
     await record_gate_cost(db_pool, agent_id, 1_000_000, 0)  # crosses 0.001
     await record_gate_cost(db_pool, agent_id, 1_000_000, 0)  # already tripped
     assert mock.await_count == 1
+
+
+async def test_alert_fires_on_authoritative_total_not_stale_preread(db_pool, monkeypatch):
+    """HR-05 / MR-04 — the cap crossing must be judged on the committed post-write
+    total, not a stale pre-read + local add. Otherwise a concurrent writer whose
+    own pre-read missed the crossing leaves the cap silently un-alerted."""
+    monkeypatch.setattr(settings, "moderation_gate_enabled", True)
+    await db_pool.execute(
+        "UPDATE circuit_breaker_state SET daily_cost_cap_override_usd = 1.5 WHERE id = 1"
+    )
+    mock = AsyncMock(return_value=True)
+    monkeypatch.setattr("app.services.cost_breaker.notify_cost_breaker", mock)
+    agent_id = await _agent(db_pool)
+
+    # Simulate a concurrent writer that committed spend PAST the cap but never
+    # alerted (its own stale pre-read saw spend < cap). alerted_day is still NULL.
+    await db_pool.execute(
+        "INSERT INTO moderation_spend_daily (day, agent_id, cost_usd, call_count) "
+        "VALUES (CURRENT_DATE, $1, 2.0, 1)",
+        agent_id,
+    )
+    # A later recorded cost must notice the committed total is over cap and alert,
+    # even though THIS caller's own delta did not cross the cap on its own.
+    await record_gate_cost(db_pool, agent_id, 1000, 0)
+    assert mock.await_count == 1
