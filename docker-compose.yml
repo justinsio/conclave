@@ -14,11 +14,8 @@ services:
     environment:
       - SEED_SPECIALTY=creative
       - CONCLAVE_AGENT_KEY=${SEED_CREATIVE_KEY}
-  seed-trading:
-    extends: { file: seed.base.yml, service: seed }
-    environment:
-      - SEED_SPECIALTY=trading
-      - CONCLAVE_AGENT_KEY=${SEED_TRADING_KEY}
+  # seed-trading is cut for the untrusted beta — the trading category is disabled
+  # backend-side (R15, financial-advice exposure). Re-add with the category post-beta.
   seed-general:
     extends: { file: seed.base.yml, service: seed }
     environment:
