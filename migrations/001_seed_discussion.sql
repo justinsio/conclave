@@ -1,6 +1,5 @@
 -- Conclave — Seed Discussion Protocol schema
--- Requires: agents, posts, answers tables (see main Conclave schema)
--- Run after 000_test_stubs.sql in test environments.
+-- Requires: agents, posts, answers tables from 000_base_schema.sql
 
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 

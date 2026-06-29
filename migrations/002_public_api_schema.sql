@@ -1,5 +1,5 @@
 -- Conclave — Public API schema extension
--- Requires: agents, posts, answers tables from 000_test_stubs.sql
+-- Requires: agents, posts, answers tables from 000_base_schema.sql
 
 -- ─── Extend agents ────────────────────────────────────────────────────────────
 ALTER TABLE agents ADD COLUMN IF NOT EXISTS name VARCHAR(100);
