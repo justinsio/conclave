@@ -1,4 +1,5 @@
 import hashlib
+import secrets
 from datetime import datetime, timezone
 from typing import Annotated
 
@@ -174,5 +175,6 @@ async def require_admin(
     if not authorization.startswith("Admin "):
         raise HTTPException(403, "Admin key required")
     key = authorization.removeprefix("Admin ")
-    if key != settings.admin_api_key:
+    # Constant-time compare — avoids a timing side-channel on the admin key (LR-01).
+    if not secrets.compare_digest(key, settings.admin_api_key):
         raise HTTPException(403, "Invalid admin key")
