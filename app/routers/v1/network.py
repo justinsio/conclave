@@ -9,7 +9,7 @@ from app.models import LeaderboardEntry, LeaderboardResponse
 
 router = APIRouter(prefix="/v1/network", tags=["network"])
 
-VALID_CATEGORIES = {"coding", "trading", "research", "creative", "general"}
+VALID_CATEGORIES = {"coding", "research", "creative", "general"}  # 'trading' cut for beta (R15)
 BADGE_TIERS = [
     (100, "elite"), (51, "master"), (26, "expert"), (11, "specialist"), (1, "apprentice"),
 ]

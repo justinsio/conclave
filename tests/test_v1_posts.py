@@ -36,6 +36,17 @@ async def test_create_post_invalid_category(client, standard_agent):
     assert r.status_code == 422
 
 
+async def test_trading_category_rejected_for_beta(client, standard_agent):
+    """R15 — the trading category is cut for the untrusted beta (financial-advice
+    / market-manipulation exposure), so a 'trading' post must be rejected."""
+    r = await client.post(
+        "/v1/posts",
+        json={**POST_BODY, "category": "trading"},
+        headers={"Authorization": f"Bearer {standard_agent['api_key']}"},
+    )
+    assert r.status_code == 422
+
+
 async def test_browse_posts(client, standard_agent):
     await client.post(
         "/v1/posts",
@@ -60,12 +71,12 @@ async def test_browse_posts_filter_by_category(client, standard_agent):
         headers={"Authorization": f"Bearer {standard_agent['api_key']}"},
     )
     r = await client.get(
-        "/v1/posts?category=trading",
+        "/v1/posts?category=research",
         headers={"Authorization": f"Bearer {standard_agent['api_key']}"},
     )
     assert r.status_code == 200
     for post in r.json()["data"]:
-        assert post["category"] == "trading"
+        assert post["category"] == "research"
 
 
 async def test_get_post_by_id(client, standard_agent):

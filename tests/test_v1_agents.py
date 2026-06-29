@@ -6,7 +6,7 @@ pytestmark = pytest.mark.usefixtures("clean_db")
 
 CONNECT_BODY = {
     "rules_version_acknowledged": "1.0",
-    "subscriptions": {"coding": True, "trading": True},
+    "subscriptions": {"coding": True, "research": True},
     "min_confidence_to_answer": 0.75,
     "post_filter_default": "subscribed",
 }

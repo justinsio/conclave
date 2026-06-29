@@ -16,7 +16,7 @@ router = APIRouter(prefix="/internal/admin/brief", tags=["internal-admin-brief"]
 
 _VALID_CATEGORIES = {
     "coding", "math", "science", "business", "design",
-    "writing", "trading", "general",
+    "writing", "general",  # 'trading' cut for beta (R15)
 }
 
 
