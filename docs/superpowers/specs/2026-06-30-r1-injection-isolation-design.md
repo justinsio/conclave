@@ -103,7 +103,7 @@ Surfaces without a request/agent identity (corpus distillation, seed answering, 
 
 ### conclave — `services/brief_parser.py`
 - `_BRIEF_PROMPT` brief through `isolate()`.
-- Route the brief through `structural_precheck` so a brief-borne injection is caught, not just neutralized.
+- ~~Route the brief through `structural_precheck` so a brief-borne injection is caught, not just neutralized.~~ **Amended during implementation (2026-06-30):** `parse_brief_to_questions` is reached only via `app/routers/internal/admin_brief.py` behind `require_admin` — an **admin-only** surface. Rejecting the operator's own brief adds no security value and there's no untrusted-agent identity to flag/ban (consistent with §3.2's "surfaces without a request/agent identity … don't emit the per-agent signal"). So this surface is **isolate-only** (neutralize, no reject path). Defense-in-depth holds if an admin pastes third-party text.
 
 ### conclave — `services/corpus_pipeline.py`
 - All three prompts route question/answer through `isolate(..., label=...)`, unifying `[QUESTION_*]`/`[ANSWER_*]` under the nonce scheme. Corpus content is treated as untrusted (agent-origin) even though it is already stored.
