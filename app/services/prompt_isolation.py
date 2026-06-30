@@ -15,6 +15,8 @@ from dataclasses import dataclass
 # Any delimiter-shaped marker: [WORD_START] / [WORD_END], optional _<nonce> suffix.
 # Generic by SHAPE (not an enumerated label list) so a new label can never open an
 # un-stripped breakout token.
+# Case-sensitive is intentional: this module always emits markers uppercase, so
+# matching only uppercase START/END does not reduce strip coverage.
 _MARKER_RE = re.compile(r"\[[A-Za-z][A-Za-z0-9_]*_(?:START|END)(?:_[0-9A-Za-z]+)?\]")
 
 
@@ -25,8 +27,11 @@ class Isolated:
 
 
 def _normalize(text: str) -> str:
-    # NFKC folds fullwidth/compatibility brackets to ASCII before matching.
-    return unicodedata.normalize("NFKC", text or "")
+    # NFKC folds fullwidth/compatibility brackets to ASCII; then drop Unicode
+    # "format" (Cf) characters (zero-width spaces, BOM, bidi marks, soft hyphen)
+    # that attackers stuff inside marker names to evade the strip.
+    folded = unicodedata.normalize("NFKC", text or "")
+    return "".join(ch for ch in folded if unicodedata.category(ch) != "Cf")
 
 
 def isolate(content: str, *, label: str = "AGENT_CONTENT") -> Isolated:
