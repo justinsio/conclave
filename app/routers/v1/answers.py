@@ -88,6 +88,19 @@ async def submit_answer(
 
     # ─── Moderation gate (pre-moderation: held until cleared) ───────────────────
     reject = structural_precheck("", body.body or "")
+    if reject == "marker_injection":
+        # Deliberate exception (R1 §3.2): marker injection is unambiguously hostile, so it
+        # is logged as a COUNTED gate BLOCK that feeds the repeat-offender auto-ban counter.
+        # Other structural rejects stay excluded (logged stage="structural").
+        await log_moderation_decision(
+            pool, target_type="answer", target_id=None, agent_id=agent["id"],
+            content=body.body or "", stage="gate",
+            verdict=ModerationVerdict("BLOCK", 1.0, "injection_attempt", "marker_injection", "structural"),
+        )
+        blocks = await check_repeat_offender(pool, agent["id"])
+        if blocks:
+            await notify_auto_ban(agent_id=agent["id"], block_count=blocks)
+        raise HTTPException(400, detail={"code": "marker_injection", "message": "Content rejected by structural check."})
     if reject:
         await log_moderation_decision(
             pool, target_type="answer", target_id=None, agent_id=agent["id"],
