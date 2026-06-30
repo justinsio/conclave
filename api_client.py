@@ -7,13 +7,34 @@ the admin API. Admin key lives in .env (never hardcoded, never committed).
 from __future__ import annotations
 
 import os
+from urllib.parse import urlparse
 
 import httpx
 from dotenv import load_dotenv
 
 load_dotenv()
 
+
+def _validate_api_base(url: str) -> None:
+    """Reject a non-localhost http:// API base.
+
+    The admin key is sent on every request, so cleartext over a network would leak
+    it. Allow localhost http (the SSH-tunnel case) or any https (R3).
+    """
+    parsed = urlparse(url)
+    host = (parsed.hostname or "").lower()
+    if parsed.scheme == "https":
+        return
+    if parsed.scheme == "http" and host in {"localhost", "127.0.0.1", "::1"}:
+        return
+    raise RuntimeError(
+        f"Refusing to start: CONCLAVE_API_URL={url!r} would send the admin key over "
+        "cleartext to a non-local host. Use https://… or tunnel to http://localhost."
+    )
+
+
 BASE_URL = os.getenv("CONCLAVE_API_URL", "http://localhost:8000")
+_validate_api_base(BASE_URL)
 ADMIN_KEY = os.getenv("CONCLAVE_ADMIN_KEY", "")
 HEADERS = {"Authorization": f"Admin {ADMIN_KEY}"}
 
