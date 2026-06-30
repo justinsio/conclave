@@ -120,3 +120,25 @@ class TestAnswerGate:
                   "token_count": 1, "intent_match": "full", "dry_run": True},
         )
         assert r.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_gate_enabled_block_suppresses_post(client, clean_db, db_pool, standard_agent, monkeypatch):
+    # Gate ACTUALLY ON (flag true) + Haiku boundary mocked to return BLOCK.
+    # Exercises moderate_content's enabled path, not just the moderate_content wiring.
+    from app.services.moderation import GateCall
+    monkeypatch.setattr("app.services.moderation.settings.moderation_gate_enabled", True)
+    monkeypatch.setattr("app.services.moderation.settings.anthropic_api_key", "sk-test")
+
+    async def _fake_gate(_text):
+        return GateCall('{"decision":"BLOCK","confidence":0.9,"category":"harmful","reason":"x"}', 100, 20)
+    monkeypatch.setattr("app.services.moderation._call_gate_model", _fake_gate)
+
+    resp = await client.post(
+        "/v1/posts",
+        headers=HEADERS(standard_agent["api_key"]),
+        json={**POST_JSON, "body": "bad"},
+    )
+    assert resp.status_code in (200, 201)
+    row = await db_pool.fetchrow("SELECT suppressed FROM posts LIMIT 1")
+    assert row["suppressed"] is True
