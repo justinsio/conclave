@@ -148,3 +148,17 @@ Every test asserts **neutralization/rejection**, never the vuln.
 ## 8. Definition of done (Wave 1 / A1 verify line)
 
 An adversarial test suite with real payloads (the `[AGENT_CONTENT_END]` break, RAG poisoning) that asserts **rejection/neutralization**, green in both repos, **replacing** the tests that assert the vulnerability as correct. Marker-injection on the gated path produces an `injection_attempt` log row and counts toward auto-ban. Only then does R1 flip to fixed-with-evidence in the scorecard.
+
+---
+
+## 9. Deferred decisions / tech debt (revisit — not blocking R1 or GO)
+
+> Tracked deliberately so it surfaces later instead of rotting as silent copy-paste. Relevant to the **build-to-sell** goal (`[[project-conclave-exit-strategy]]`): an acquirer pays for clean, precise, well-documented IP, so this is a "known and chosen," not a "hidden."
+
+- **D1 — `prompt_isolation` duplicated across `conclave` and `conclave-seeds`.** §2.4 chose duplication over a shared package because it is ~30 lines of pure function and a shared package adds release/versioning overhead for a solo beta. The two unit suites assert identical properties, so behavioral drift is caught.
+  - **Why it's debt:** the same security-critical code lives in two repos; a future fix must be applied (and re-tested) in both.
+  - **Revisit trigger — do the consolidation when *any* of these is true:**
+    1. a **third** shared module appears between the two repos (two copies is tolerable; three means we need a real shared lib), **or**
+    2. `prompt_isolation` needs a non-trivial change (the moment a real fix has to be made twice), **or**
+    3. **pre-acquisition / due-diligence cleanup** — when packaging the codebase for sale, fold shared security primitives into one versioned internal package.
+  - **Likely resolution:** a small internal package (e.g. `conclave-core`) holding shared security primitives, pinned by version in both repos. Out of scope for R1.
