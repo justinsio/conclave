@@ -4,6 +4,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     database_url: str = ""
     test_database_url: str = ""
+    environment: str = "dev"   # env var ENVIRONMENT; "dev" | "production" (drives the prod preflight)
     blind_phase_check_interval: int = 5
     coordinator_fallback_interval: int = 60
     calibration_interval: int = 300
