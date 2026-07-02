@@ -3,6 +3,7 @@ import logging
 import time
 
 from fastapi import FastAPI, Request, Response
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
 from app.database import close_pool, init_pool
@@ -109,6 +110,19 @@ async def rate_limit_headers(request: Request, call_next) -> Response:
     response.headers["X-RateLimit-Reset"] = str(reset_ts)
     response.headers["X-RateLimit-Window"] = "60"
     return response
+
+
+# CORS for the browser-facing waitlist form (marketing site → API is cross-origin).
+# Added after the rate-limit middleware so it sits outermost and answers preflights.
+_cors_origins = [o.strip() for o in settings.cors_allow_origins.split(",") if o.strip()]
+if _cors_origins:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=_cors_origins,
+        allow_methods=["GET", "POST", "OPTIONS"],
+        allow_headers=["Content-Type"],
+        allow_credentials=False,
+    )
 
 
 app.include_router(threads_router)

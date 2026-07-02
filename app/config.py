@@ -92,6 +92,12 @@ class Settings(BaseSettings):
     # the real peer). Set in beta/prod .env to the actual edge IP(s).
     trusted_proxy_ips: str = ""
 
+    # ─── CORS (browser-facing endpoints) ──────────────────────────────────────
+    # Comma-separated origins allowed to call the API from a browser. Only the
+    # public waitlist form is browser-facing (the marketing site); agents and
+    # servers don't send an Origin header and are unaffected. Empty = CORS off.
+    cors_allow_origins: str = "https://conclaveai.co,https://www.conclaveai.co"
+
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
 
