@@ -35,6 +35,12 @@ def assert_production_safety(settings) -> None:
         failures.append(
             "anthropic_api_key is empty — the moderation gate needs ANTHROPIC_API_KEY"
         )
+    if not settings.trusted_proxy_ips:
+        failures.append(
+            "trusted_proxy_ips is empty — behind a proxy this collapses the rate limiter "
+            "to one shared bucket (all clients share the proxy's IP); set TRUSTED_PROXY_IPS "
+            "to the edge/proxy IP(s)"
+        )
 
     if failures:
         raise RuntimeError(

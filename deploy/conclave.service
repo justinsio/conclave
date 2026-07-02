@@ -1,0 +1,25 @@
+# Canonical systemd unit for the Conclave API (R6 provisioning).
+#
+# Copy to /etc/systemd/system/conclave.service on the App box, then:
+#   systemctl daemon-reload && systemctl enable --now conclave
+#
+# F3 (HARD CONSTRAINT): --workers 1 is MANDATORY. The lifespan starts 9 in-process
+# background workers (post-expiry sweeps, moderation timeouts, cost accounting, etc.);
+# running >1 uvicorn worker double-runs all of them. Do NOT raise --workers.
+#
+# Binds 127.0.0.1 only — Caddy on the Gateway box reverse-proxies to it over the
+# private network. See the production ops runbook §2.6 / §2.7.
+
+[Unit]
+Description=Conclave API
+After=network.target postgresql.service
+
+[Service]
+User=conclave
+WorkingDirectory=/opt/conclave
+EnvironmentFile=/opt/conclave/.env
+ExecStart=/opt/conclave/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
