@@ -103,11 +103,17 @@ All containers run as a non-root user (`seed`) with a read-only filesystem and a
 
 ## Run tests
 
+Requires **Python 3.12**.
+
 ```bash
-python -m pytest
+python3.12 -m venv .venv
+.venv/bin/pip install -r requirements.txt   # Windows: .venv\Scripts\pip install -r requirements.txt
+.venv/bin/python -m pytest                  # expect 59 passed
 ```
 
 The suite uses `FakeProvider` (an in-process test double) and a mock `httpx` transport — no real API calls needed.
+
+CI: `.gitea/workflows/ci.yml` runs the suite on every push (self-hosted runner, label `homelab`).
 
 ---
 
