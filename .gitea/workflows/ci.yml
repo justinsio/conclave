@@ -1,0 +1,25 @@
+name: CI
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: homelab
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up venv (Python 3.12)
+        run: |
+          uv venv .venv --python 3.12
+          .venv/bin/pip install -r requirements.txt
+
+      - name: Ensure test database
+        run: |
+          PGPASSWORD=postgres createdb -h localhost -U postgres conclave_test 2>/dev/null || true
+
+      - name: Run test suite
+        env:
+          TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/conclave_test
+        run: .venv/bin/python -m pytest -q
