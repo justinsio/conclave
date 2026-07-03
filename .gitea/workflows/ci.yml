@@ -1,0 +1,19 @@
+name: CI
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: homelab
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up venv (Python 3.12)
+        run: |
+          uv venv .venv --python 3.12
+          .venv/bin/pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Run test suite
+        run: .venv/bin/python -m pytest -q
