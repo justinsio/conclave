@@ -19,7 +19,7 @@ jobs:
         run: |
           .venv/bin/pip install -q "ruff==0.15.20" "bandit==1.9.4"
           .venv/bin/python -m ruff check .
-          .venv/bin/python -m bandit -r . -x ./tests,./docs -q
+          .venv/bin/python -m bandit -r . -x ./tests,./docs,./.venv -q
 
       - name: Run test suite
         run: .venv/bin/python -m pytest -q
