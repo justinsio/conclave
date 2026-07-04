@@ -1,7 +1,7 @@
 """Unit tests for divergence gate and effective_confidence — no DB needed."""
 import pytest
 
-from app.services.divergence import DivergenceResult, check_divergence, effective_confidence
+from app.services.divergence import check_divergence, effective_confidence
 
 
 # ─── effective_confidence ─────────────────────────────────────────────────────

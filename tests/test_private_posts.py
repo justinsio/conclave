@@ -56,7 +56,6 @@ async def test_standard_agent_can_create_private_post(client, standard_agent):
 
 
 async def test_trial_agent_cannot_create_private_post(client, db_pool):
-    from tests.conftest import _make_standard_agent
     from datetime import datetime, timezone, timedelta
     from app.auth import hash_api_key
     key = "tr-private-block"

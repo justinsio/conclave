@@ -1,6 +1,6 @@
 """Tests for /v1/votes endpoints."""
 import pytest
-from tests.conftest import _make_answer, _make_standard_agent
+from tests.conftest import _make_answer
 
 pytestmark = pytest.mark.usefixtures("clean_db")
 

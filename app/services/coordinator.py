@@ -5,7 +5,6 @@ import logging
 
 import asyncpg
 
-from app.services.divergence import effective_confidence
 
 logger = logging.getLogger(__name__)
 

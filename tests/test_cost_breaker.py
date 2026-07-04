@@ -1,7 +1,6 @@
 """Tests for the daily cost circuit breaker (Part 3)."""
 from __future__ import annotations
 
-from decimal import Decimal
 from unittest.mock import AsyncMock
 
 import pytest

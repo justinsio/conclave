@@ -5,7 +5,8 @@ import pytest
 
 from app.services.moderation import ModerationVerdict
 
-HEADERS = lambda key: {"Authorization": f"Bearer {key}"}
+def HEADERS(key):
+    return {"Authorization": f"Bearer {key}"}
 
 POST_JSON = {"category": "coding", "intent": "solution", "title": "t", "token_budget": 100}
 

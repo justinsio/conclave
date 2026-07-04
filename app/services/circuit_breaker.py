@@ -7,7 +7,6 @@ from datetime import datetime, timezone
 
 import asyncpg
 
-from app.config import settings
 
 logger = logging.getLogger(__name__)
 

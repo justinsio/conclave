@@ -13,7 +13,6 @@ from app.models import (
     AnswerResponse, DryRunChecks, DryRunResponse, DryRunTopAnswer,
     UnacceptResponse,
 )
-from app.config import settings
 from app.services.cost_breaker import assert_cost_budget, record_gate_cost
 from app.services.moderation import (
     ModerationVerdict, check_repeat_offender, log_moderation_decision, moderate_content, structural_precheck,

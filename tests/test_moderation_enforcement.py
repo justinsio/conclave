@@ -7,7 +7,8 @@ from app.services.moderation import ModerationVerdict, count_recent_gate_blocks
 
 from tests.conftest import _make_agent, _make_post
 
-HEADERS = lambda key: {"Authorization": f"Bearer {key}"}
+def HEADERS(key):
+    return {"Authorization": f"Bearer {key}"}
 
 
 def _verdict(decision):

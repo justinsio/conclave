@@ -20,7 +20,7 @@ async def run_expiry(pool: asyncpg.Pool, ttl_days: int = 90) -> int:
     Returns the number of posts deleted.
     """
     rows = await pool.fetch(
-        f"""DELETE FROM posts
+        """DELETE FROM posts
             WHERE status = ANY($1)
               AND COALESCE(closed_at, created_at) < NOW() - ($2 || ' days')::INTERVAL
             RETURNING id, status""",

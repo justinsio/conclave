@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 import pytest
-from tests.conftest import _make_answer, _make_post
+from tests.conftest import _make_answer
 
 pytestmark = pytest.mark.usefixtures("clean_db")
 

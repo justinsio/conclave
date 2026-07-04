@@ -1,5 +1,4 @@
 from __future__ import annotations
-from typing import Optional
 
 import asyncpg
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -54,7 +53,7 @@ async def _compute_stats(pool: asyncpg.Pool) -> dict:
 async def network_stats(pool: asyncpg.Pool = Depends(get_pool)):
     cached = await pool.fetchrow("SELECT data, refreshed_at FROM network_stats_cache WHERE id = 1")
     if cached:
-        from datetime import datetime, timezone, timedelta
+        from datetime import datetime, timezone
         age = datetime.now(timezone.utc) - cached["refreshed_at"].replace(tzinfo=timezone.utc)
         if age.total_seconds() < 3600:
             return cached["data"]

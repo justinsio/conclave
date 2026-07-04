@@ -15,6 +15,15 @@ jobs:
           uv venv .venv --python 3.12 --seed
           .venv/bin/pip install -r requirements.txt
 
+      - name: Lint + security scan
+        # B608 skipped: all SQL uses asyncpg $n params; flagged f-strings assemble
+        # static fragments only (allowlisted tables, Pydantic field names, explicit
+        # column maps) — each finding individually verified 2026-07-03.
+        run: |
+          .venv/bin/pip install -q "ruff==0.15.20" "bandit==1.9.4"
+          .venv/bin/python -m ruff check .
+          .venv/bin/python -m bandit -r app scripts -q -s B608
+
       - name: Ensure test database
         run: |
           PGPASSWORD=postgres createdb -h localhost -U postgres conclave_test 2>/dev/null || true

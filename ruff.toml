@@ -1,0 +1,8 @@
+# Lint baseline (2026-07-03): default ruff rules (pyflakes + pycodestyle errors).
+# Suite was cleaned to zero findings when this landed — keep it that way.
+
+[lint.per-file-ignores]
+# Test modules deliberately set env vars / register fixtures BEFORE importing
+# app modules that read settings at import time (see tests/conftest.py header).
+# Top-of-file import order is not achievable there by design.
+"tests/*" = ["E402"]

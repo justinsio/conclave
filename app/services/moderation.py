@@ -245,14 +245,19 @@ def _validate_verdict(raw: str, model: str) -> ModerationVerdict:
     """Parse + validate. ANY failure ⇒ ESCALATE (fail-safe), never PASS."""
     parsed = _extract_last_json(raw)
     try:
-        assert parsed is not None
+        # Explicit raises, not asserts: asserts are stripped under `python -O`,
+        # which would silently disarm this fail-safe.
+        if parsed is None:
+            raise ValueError("no JSON object in verdict")
         decision = str(parsed["decision"]).upper()
-        assert decision in _VALID_DECISIONS
+        if decision not in _VALID_DECISIONS:
+            raise ValueError(f"invalid decision {decision!r}")
         confidence = float(parsed.get("confidence", 0.0))
-        assert 0.0 <= confidence <= 1.0
+        if not 0.0 <= confidence <= 1.0:
+            raise ValueError(f"confidence out of range: {confidence}")
         category = parsed.get("category")
-        if category is not None:
-            assert category in _VALID_CATEGORIES
+        if category is not None and category not in _VALID_CATEGORIES:
+            raise ValueError(f"invalid category {category!r}")
         return ModerationVerdict(
             decision=decision,
             confidence=confidence,

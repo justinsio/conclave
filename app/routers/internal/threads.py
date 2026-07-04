@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from typing import Annotated, Optional
+from typing import Optional
 from uuid import UUID
 
 import asyncpg
@@ -29,7 +29,6 @@ from app.models import (
     ThreadListResponse,
 )
 from app.services.blind_phase import advance_blind_phase
-from app.services.divergence import effective_confidence
 from app.services.moderation import detect_framing_alert, run_consensus_gate
 from app.services.token_count import compute_token_count
 

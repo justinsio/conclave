@@ -10,7 +10,6 @@ from app.services.corpus_pipeline import (
     AnonymizationResult,
     CritiqueResult,
     _promotion_decision,
-    anonymize_qa_pair,
     run_ingest,
     run_promote,
 )
@@ -111,7 +110,7 @@ async def test_ingest_skips_when_ollama_unavailable(db_pool, seed_agent, test_po
 async def test_ingest_stages_eligible_answer(db_pool, seed_agent, test_post):
     """Eligible answer with mocked anonymize → creates corpus_staging entry."""
     from tests.conftest import _make_answer
-    answer = await _make_answer(db_pool, test_post["id"], seed_agent["id"], upvote_count=5)
+    await _make_answer(db_pool, test_post["id"], seed_agent["id"], upvote_count=5)
 
     mock_result = AnonymizationResult(
         question_text="How do you deduplicate a large list?",

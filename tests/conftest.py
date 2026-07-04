@@ -8,7 +8,6 @@ Requires a local Postgres instance and TEST_DATABASE_URL in .env:
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import os
 from datetime import datetime, timedelta, timezone
 from pathlib import Path

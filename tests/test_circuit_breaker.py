@@ -7,13 +7,10 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from app.services.circuit_breaker import (
-    THREAT_INDEX_ATTACK,
-    TRACK_B_CONFIDENCE_THRESHOLD,
     _enter_attack_mode,
     _enter_conservative_mode,
     _reset_to_normal,
     check_thresholds,
-    compute_threat_signal_index,
     get_state,
     is_track_a_paused,
     record_hourly_stats,
