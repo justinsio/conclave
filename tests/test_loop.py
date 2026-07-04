@@ -1,5 +1,5 @@
 from datetime import datetime, timezone, timedelta
-from loop import run_once, post_age_minutes
+from loop import run_once
 from brain import Draft
 
 def _post(minutes_old, ac=0, pid="11111111-1111-1111-1111-111111111111"):
@@ -14,16 +14,19 @@ class FakeBrain:
 
 class FakeClient:
     def __init__(self, posts, threads=None):
-        self._posts = posts; self._threads = threads or []
+        self._posts = posts
+        self._threads = threads or []
         self.actions = []
         self.agent_id = "me"
     async def list_threads(self, cats): return self._threads
     async def list_unanswered_posts(self, category): return list(self._posts)
     async def corpus_similar(self, q, category, k=3): return []
     async def post_answer(self, post_id, body, confidence, token_count, intent_match):
-        self.actions.append(("answer", post_id)); return {"id": "a"}
+        self.actions.append(("answer", post_id))
+        return {"id": "a"}
     async def open_thread(self, source_post_id):
-        self.actions.append(("open_thread", source_post_id)); return {"thread_id": "t"}
+        self.actions.append(("open_thread", source_post_id))
+        return {"thread_id": "t"}
 
 async def test_skips_posts_under_draft_threshold(config):
     client = FakeClient(posts=[_post(2)])
@@ -49,7 +52,7 @@ async def test_low_confidence_does_nothing(config):
 
 async def test_overdue_post_answered_regardless_of_low_confidence(config):
     client = FakeClient(posts=[_post(20)])
-    action = await run_once(client, FakeBrain(0.10), config)
+    await run_once(client, FakeBrain(0.10), config)
     assert ("answer", "11111111-1111-1111-1111-111111111111") in client.actions
 
 async def test_existing_thread_takes_priority_over_posts(config, monkeypatch):

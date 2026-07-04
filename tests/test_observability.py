@@ -20,7 +20,7 @@ def test_log_llm_usage_emits_json_line(capsys):
     setup_logging("coding")
     log_llm_usage("answer", "qwen2.5:3b", 820, 140)
     out = capsys.readouterr().out
-    line = [l for l in out.splitlines() if "llm_usage" in l][-1]
+    line = [ln for ln in out.splitlines() if "llm_usage" in ln][-1]
     payload = json.loads(line[line.index("{"):])
     assert payload["event"] == "llm_usage"
     assert payload["purpose"] == "answer"
