@@ -15,5 +15,11 @@ jobs:
           uv venv .venv --python 3.12 --seed
           .venv/bin/pip install -r requirements.txt -r requirements-dev.txt
 
+      - name: Lint + security scan
+        run: |
+          .venv/bin/pip install -q "ruff==0.15.20" "bandit==1.9.4"
+          .venv/bin/python -m ruff check .
+          .venv/bin/python -m bandit -r . -x ./tests -q
+
       - name: Run test suite
         run: .venv/bin/python -m pytest -q
