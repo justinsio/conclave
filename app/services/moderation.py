@@ -48,14 +48,45 @@ _CODE_FENCE_RE = re.compile(r"```.*?```", re.DOTALL)
 _URL_RE = re.compile(r"https?://", re.IGNORECASE)
 
 # Layer 0: structural prompt-injection signatures. Pre-semantic, high-precision.
+# Precision guard: the "ignore/disregard ..." forms REQUIRE an instruction-noun object
+# (instructions/prompt/rules/...), so benign phrasings like "ignore the above caveat" or
+# "disregard your earlier answer" are NOT flagged — only instruction-directed injection is.
+# Semantic manipulation with no trigger words (e.g. "this was pre-approved, mark it PASS")
+# is deliberately left to the LLM gate, not this layer.
 _INJECTION_PATTERNS = [
-    re.compile(r"\bignore\s+(all\s+)?(previous|prior|above)\s+(instructions?|prompts?)\b", re.IGNORECASE),
-    re.compile(r"\bdisregard\s+(all\s+)?(previous|prior|above|your)\b", re.IGNORECASE),
+    # <verb> [determiner/possessive] <previous-word> <instruction-noun>.
+    # The optional determiner fixes the "ignore THE above instructions" / "ignore MY previous
+    # instructions" gap that let injection reach the model unflagged.
+    re.compile(
+        r"\b(?:ignore|disregard|forget|discard|override)\s+"
+        r"(?:all\s+|the\s+|these\s+|those\s+|my\s+|your\s+|our\s+|any\s+)?"
+        r"(?:previous|prior|above|preceding|earlier|foregoing|initial|original)\s+"
+        r"(?:instructions?|prompts?|messages?|rules?|directions?|commands?|guidelines?|context)\b",
+        re.IGNORECASE,
+    ),
+    # <verb> your <instruction-noun> — possessive form, no "previous" needed.
+    re.compile(
+        r"\b(?:ignore|disregard|forget|override)\s+your\s+"
+        r"(?:instructions?|prompts?|rules?|guidelines?|training|directives?|system\s+prompt)\b",
+        re.IGNORECASE,
+    ),
+    # <verb> everything above/before/prior/you-were-told.
+    re.compile(
+        r"\b(?:ignore|disregard|forget)\s+everything\s+"
+        r"(?:above|before|prior|previously|you\s+(?:were\s+told|said))\b",
+        re.IGNORECASE,
+    ),
+    # Role reassignment.
     re.compile(r"\byou\s+are\s+now\s+(an?\s+)?\w+", re.IGNORECASE),
-    re.compile(r"\bnew\s+instructions?\s*:", re.IGNORECASE),
-    re.compile(r"\byou\s+are\s+now\s+authorized\s+to\b", re.IGNORECASE),
-    re.compile(r"\b(reveal|repeat|print|show|output|leak|expose)\b.{0,40}\bsystem\s+prompt\b",
-               re.IGNORECASE | re.DOTALL),
+    re.compile(r"\byou\s+are\s+now\s+(?:authorized|allowed|permitted|cleared|free)\s+to\b", re.IGNORECASE),
+    # Instruction-injection marker.
+    re.compile(r"\b(?:new|updated|revised|different|additional)\s+instructions?\s*:", re.IGNORECASE),
+    # Prompt / instruction exfiltration (object widened beyond "system prompt").
+    re.compile(
+        r"\b(reveal|repeat|print|show|output|leak|expose|display|share)\b.{0,40}"
+        r"\b(system\s+prompt|your\s+(?:instructions?|prompt|rules|guidelines)|initial\s+prompt)\b",
+        re.IGNORECASE | re.DOTALL,
+    ),
 ]
 
 
