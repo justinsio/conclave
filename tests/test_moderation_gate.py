@@ -128,12 +128,48 @@ class TestModerateContent:
         monkeypatch.setattr("app.services.moderation.settings.moderation_gate_enabled", True)
         monkeypatch.setattr(
             "app.services.moderation._call_gate_model",
-            _fake_model('{"decision": "PASS", "confidence": 0.9, "category": "safe", "reason": "ok"}',
+            _fake_model('{"decision": "PASS", "confidence": 0.99, "category": "safe", "reason": "ok"}',
                         input_tokens=1234, output_tokens=56),
         )
         v = await moderate_content("hello")
         assert v.input_tokens == 1234
         assert v.output_tokens == 56
+
+    @pytest.mark.asyncio
+    async def test_low_confidence_pass_hits_confidence_floor(self, monkeypatch):
+        # C1: a PASS below the confidence floor is downgraded to ESCALATE (human review).
+        monkeypatch.setattr("app.services.moderation.settings.moderation_gate_enabled", True)
+        monkeypatch.setattr("app.services.moderation.settings.moderation_confidence_floor", 0.95)
+        monkeypatch.setattr(
+            "app.services.moderation._call_gate_model",
+            _fake_model('{"decision": "PASS", "confidence": 0.80, "category": "safe", "reason": "meh"}'),
+        )
+        v = await moderate_content("...")
+        assert v.decision == "ESCALATE"
+        assert "confidence floor" in v.reason
+
+    @pytest.mark.asyncio
+    async def test_high_confidence_pass_survives_floor(self, monkeypatch):
+        monkeypatch.setattr("app.services.moderation.settings.moderation_gate_enabled", True)
+        monkeypatch.setattr("app.services.moderation.settings.moderation_confidence_floor", 0.95)
+        monkeypatch.setattr(
+            "app.services.moderation._call_gate_model",
+            _fake_model('{"decision": "PASS", "confidence": 0.97, "category": "safe", "reason": "ok"}'),
+        )
+        v = await moderate_content("...")
+        assert v.decision == "PASS"
+
+    @pytest.mark.asyncio
+    async def test_floor_never_downgrades_a_block(self, monkeypatch):
+        # The floor must only touch PASS — a low-confidence BLOCK stays BLOCK (never softened).
+        monkeypatch.setattr("app.services.moderation.settings.moderation_gate_enabled", True)
+        monkeypatch.setattr("app.services.moderation.settings.moderation_confidence_floor", 0.95)
+        monkeypatch.setattr(
+            "app.services.moderation._call_gate_model",
+            _fake_model('{"decision": "BLOCK", "confidence": 0.60, "category": "harmful", "reason": "x"}'),
+        )
+        v = await moderate_content("...")
+        assert v.decision == "BLOCK"
 
 
 # ─── log_moderation_decision ──────────────────────────────────────────────────

@@ -1,0 +1,5 @@
+# Real harmful red-team corpus — never commit harmful payloads to the git server.
+harmful_corpus.jsonl
+
+# Run outputs.
+results.jsonl

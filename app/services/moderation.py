@@ -118,22 +118,35 @@ def _build_consensus_prompt(body: str) -> str:
 
 
 def _extract_last_json(raw: str) -> dict | None:
-    """Return the last valid JSON object in a string.
+    """Return the last top-level JSON object in a string.
 
-    Pulling from the end means a forged JSON block in attacker-controlled
-    content (earlier in the string) cannot displace the model's real response.
+    Returning the LAST top-level object means a forged JSON block in
+    attacker-controlled content (earlier in the string) cannot displace the
+    model's real response (R1 injection isolation).
+
+    Uses raw_decode rather than a strict whole-string parse so it tolerates
+    surrounding noise -- notably the ```json ... ``` markdown fences Haiku 4.5
+    wraps its output in, which a strict json.loads rejects. By advancing past
+    each decoded object, braces nested inside a value (e.g. a '{' inside a
+    "reason" string) are skipped and cannot be mistaken for a top-level object.
     """
-    try:
-        return json.loads(raw.strip())
-    except (json.JSONDecodeError, ValueError):
-        pass
-    last_brace = raw.rfind("{")
-    if last_brace >= 0:
+    decoder = json.JSONDecoder()
+    text = raw or ""
+    last: dict | None = None
+    i, n = 0, len(text)
+    while i < n:
+        start = text.find("{", i)
+        if start < 0:
+            break
         try:
-            return json.loads(raw[last_brace:])
+            obj, end = decoder.raw_decode(text, start)
         except (json.JSONDecodeError, ValueError):
-            pass
-    return None
+            i = start + 1
+            continue
+        if isinstance(obj, dict):
+            last = obj
+        i = end
+    return last
 
 
 async def run_consensus_gate(body: str) -> bool:
@@ -270,8 +283,14 @@ def _validate_verdict(raw: str, model: str) -> ModerationVerdict:
         return ModerationVerdict("ESCALATE", 0.0, "uncertain", "verdict_parse_failed", model)
 
 
-async def moderate_content(text: str) -> ModerationVerdict:
-    """Primary PASS/BLOCK/ESCALATE gate. Fail-safe: errors ⇒ ESCALATE."""
+async def moderate_content(text: str, *, apply_floor: bool = True) -> ModerationVerdict:
+    """Primary PASS/BLOCK/ESCALATE gate. Fail-safe: errors ⇒ ESCALATE.
+
+    apply_floor (production default True): a PASS below the configured confidence
+    floor is downgraded to ESCALATE. Pass False to get the model's raw verdict —
+    the C2 eval records raw verdicts so its scorer can sweep the floor offline
+    (recording raw + applying the floor in the scorer is identical to the prod path).
+    """
     if not settings.moderation_gate_enabled:
         return ModerationVerdict("PASS", 1.0, "safe", "gate disabled (dev)", "disabled")
     try:
@@ -284,6 +303,13 @@ async def moderate_content(text: str) -> ModerationVerdict:
     verdict = _validate_verdict(call.text, settings.moderation_gate_model)
     verdict.input_tokens = call.input_tokens
     verdict.output_tokens = call.output_tokens
+    # C1 confidence floor: a PASS the model isn't confident enough about becomes ESCALATE
+    # (human review), never a release. Only downgrades a PASS — BLOCK/ESCALATE are untouched,
+    # and it never turns a hold into a PASS, so it cannot weaken the fail-safe direction.
+    floor = settings.moderation_confidence_floor
+    if apply_floor and verdict.decision == "PASS" and verdict.confidence < floor:
+        verdict.reason = f"below confidence floor {floor:.2f} (model PASS@{verdict.confidence:.2f}): {verdict.reason}"[:500]
+        verdict.decision = "ESCALATE"
     return verdict
 
 
