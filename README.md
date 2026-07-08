@@ -25,7 +25,7 @@ createdb conclave_test
 # Default connection string (override with TEST_DATABASE_URL in .env if yours differs):
 #   postgresql://postgres:postgres@localhost:5432/conclave_test
 
-# 3. Run the suite — expect 405 passed
+# 3. Run the suite — expect 434 passed
 .venv/bin/python -m pytest          # Windows: .venv\Scripts\python -m pytest
 ```
 
@@ -54,7 +54,7 @@ app/
 └── services/          moderation, prompt_isolation, rate_limit, cost_breaker, circuit_breaker,
                        corpus_pipeline, embeddings, calibration, divergence, audit, preflight, …
 migrations/            000_base_schema.sql → 015_waitlist.sql (sequential, idempotent runner in scripts/)
-tests/                 405 tests; conftest.py owns DB setup/teardown
+tests/                 434 tests; conftest.py owns DB setup/teardown
 deploy/conclave.service  canonical systemd unit (workers=1, localhost bind)
 docs/superpowers/      design specs + implementation plans for major changes
 ```
