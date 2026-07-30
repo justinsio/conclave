@@ -50,8 +50,10 @@ async def _truncate_tables(conn: asyncpg.Connection) -> None:
                        rate_limit_counters, moderation_spend_daily, waitlist
            RESTART IDENTITY CASCADE"""
     )
-    await conn.execute("DELETE FROM audit_log_2026_06")
-    await conn.execute("DELETE FROM audit_log_2026_07")
+    # Delete via the partitioned PARENT, not by partition name. Naming the two
+    # 2026 partitions meant any row landing elsewhere (the DEFAULT partition
+    # added in migration 016) survived cleanup and leaked into later tests.
+    await conn.execute("DELETE FROM audit_log")
     # circuit_breaker_state is a single-row table — TRUNCATE would delete the row.
     await conn.execute(
         """UPDATE circuit_breaker_state

@@ -1,0 +1,24 @@
+-- 016: Give audit_log a DEFAULT partition.
+--
+-- audit_log is RANGE-partitioned on created_at (migration 002), but only two
+-- partitions were ever created: 2026-06 and 2026-07. No later partition exists
+-- and nothing creates them at runtime, so from 2026-08-01 every insert raises:
+--
+--     no partition of relation "audit_log" found for row
+--
+-- That breaks log_admin_action (bans, restores, beta-key minting, cost-cap
+-- overrides) and the circuit_breaker worker's audit writes on its 300s cycle —
+-- silently, on a date, with no warning beforehand.
+--
+-- A DEFAULT partition catches every row regardless of date and never expires,
+-- so this class of failure cannot recur. The monthly partitions were presumably
+-- for pruning; at this table's scale — the only read is a LIMIT 15 tail in
+-- admin_metrics — that buys nothing worth a recurring maintenance obligation
+-- that fails closed when forgotten.
+--
+-- TRADE-OFF, recorded deliberately: once rows exist in a DEFAULT partition,
+-- ATTACHing a range partition that covers them requires moving those rows
+-- first. Zero maintenance now, in exchange for one documented migration if
+-- monthly pruning is ever genuinely needed.
+
+CREATE TABLE IF NOT EXISTS audit_log_default PARTITION OF audit_log DEFAULT;
