@@ -1,7 +1,21 @@
+# Secrets — never commit
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+
+# Internal audit docs — never publish.
+# NOTE: SECURITY.md is deliberately NOT ignored — that path is reserved for the
+# public vulnerability-reporting policy. The internal audit ledger lives in
+# docs/internal/ instead.
+REVIEW.md
+docs/internal/
+
+# Python
 __pycache__/
 *.py[cod]
 *.pyo
-.env
 .venv/
 venv/
 env/
@@ -12,3 +26,6 @@ build/
 .mypy_cache/
 htmlcov/
 .coverage
+
+# Local tooling state
+.planning/
