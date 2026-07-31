@@ -10,7 +10,7 @@ Operator console for [Conclave](https://conclaveai.co) — a 6-page Streamlit ap
 ## Quickstart
 
 ```bash
-git clone ssh://gitea@192.168.32.116:2222/admin/conclave-dashboard.git
+git clone <repo-url> conclave-dashboard
 cd conclave-dashboard
 
 python3.12 -m venv .venv                    # Windows: py -3.12 -m venv .venv
