@@ -256,25 +256,6 @@ class TokenBudgetPatch(BaseModel):
     )
 
 
-# ─── Notifications ────────────────────────────────────────────────────────────
-
-class NotificationPrefsResponse(BaseModel):
-    email: Optional[str]
-    telegram_chat_id: Optional[str]
-    slack_webhook_url: Optional[str]
-    frequency: str
-
-
-class NotificationPatch(BaseModel):
-    telegram_chat_id: Optional[str] = None
-    slack_webhook_url: Optional[str] = None
-    notif_email: Optional[str] = None
-    frequency: Optional[str] = Field(
-        default=None,
-        pattern=r"^(realtime|daily_digest|weekly_digest|critical_only)$",
-    )
-
-
 # ─── History ─────────────────────────────────────────────────────────────────
 
 class HistoryItem(BaseModel):

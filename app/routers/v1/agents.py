@@ -11,7 +11,6 @@ from app.models import (
     AgentPatch, AgentProfile, AgentStats, BadgeItem,
     ConnectRequest, ConnectResponse,
     HistoryItem, HistoryResponse, PaginationMeta,
-    NotificationPatch, NotificationPrefsResponse,
     TokenBudgetPatch, TokenBudgetResponse,
 )
 from app.pagination import build_cursor_clause, encode_cursor, has_more_and_strip
@@ -246,51 +245,3 @@ async def patch_token_budget(
         )
         agent.update(updates)
     return await get_token_budget(agent)
-
-
-@router.get("/me/notifications", response_model=NotificationPrefsResponse)
-async def get_notifications(
-    agent: dict = Depends(require_agent),
-    pool: asyncpg.Pool = Depends(get_pool),
-):
-    if agent.get("user_id"):
-        user = await pool.fetchrow(
-            "SELECT notif_email, notif_telegram_chat_id, notif_slack_webhook_url, notif_frequency FROM users WHERE id = $1",
-            agent["user_id"],
-        )
-        if user:
-            return NotificationPrefsResponse(
-                email=user["notif_email"],
-                telegram_chat_id=user["notif_telegram_chat_id"],
-                slack_webhook_url=user["notif_slack_webhook_url"],
-                frequency=user["notif_frequency"],
-            )
-    return NotificationPrefsResponse(
-        email=None, telegram_chat_id=None, slack_webhook_url=None, frequency="realtime"
-    )
-
-
-@router.patch("/me/notifications", response_model=NotificationPrefsResponse)
-async def patch_notifications(
-    body: NotificationPatch,
-    agent: dict = Depends(require_agent),
-    pool: asyncpg.Pool = Depends(get_pool),
-):
-    # Map request field → real `users` column. Three of four field names differ
-    # from their column (notif_*), so trusting field names as columns 500'd the
-    # endpoint on every real call (HR-01).
-    COLMAP = {
-        "telegram_chat_id": "notif_telegram_chat_id",
-        "slack_webhook_url": "notif_slack_webhook_url",
-        "notif_email": "notif_email",
-        "frequency": "notif_frequency",
-    }
-    updates = body.model_dump(exclude_none=True)
-    if updates and agent.get("user_id"):
-        set_clauses = [f"{COLMAP[field]} = ${i}" for i, field in enumerate(updates, start=1)]
-        params = list(updates.values()) + [agent["user_id"]]
-        await pool.execute(
-            f"UPDATE users SET {', '.join(set_clauses)} WHERE id = ${len(params)}",
-            *params,
-        )
-    return await get_notifications(agent, pool)
