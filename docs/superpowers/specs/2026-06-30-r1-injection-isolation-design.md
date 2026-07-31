@@ -1,5 +1,14 @@
 # R1 — Prompt-Injection Isolation Rebuild (Design)
 
+> **ERRATUM 2026-07-31:** `brief_parser.py` and the `POST /internal/admin/brief`
+> endpoint it served were **deleted** before the public release. Every count and
+> table row below that includes `brief_parser` describes the code as it stood on
+> 2026-06-30 and is no longer current: the real figures are now **6 prompt sites
+> across 4 files**, not ~7 across 5.
+>
+> The body is deliberately left as written. This is a historical design record,
+> not live documentation — see `docs/superpowers/README.md`.
+
 - **Date:** 2026-06-30
 - **Finding:** R1 (🔴 CRITICAL) in the Conclave beta-readiness scorecard — the critical-path "long pole" of Wave 1.
 - **Repos touched:** `conclave` (hub), `conclave-seeds`

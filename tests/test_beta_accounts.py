@@ -1,7 +1,4 @@
-"""Phase 1 beta-account enablement: key expiry gate + admin beta-user endpoints.
-
-Design: 02 Areas/Business/ai-agent-network-billing-signup.md (Phase 1).
-"""
+"""Phase 1 beta-account enablement: key expiry gate + admin beta-user endpoints."""
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone

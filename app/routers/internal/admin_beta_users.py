@@ -2,7 +2,6 @@
 
 Hand-issue beta testers a working API key with a 30-day expiry. No login,
 no passwords, no Stripe — these admin endpoints are the entire surface.
-Design: 02 Areas/Business/ai-agent-network-billing-signup.md (Phase 1).
 """
 from __future__ import annotations
 

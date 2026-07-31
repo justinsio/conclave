@@ -49,7 +49,7 @@ class Settings(BaseSettings):
     moderation_gate_enabled: bool = False           # set true in beta/prod .env (with anthropic_api_key)
     # C1 confidence floor: a gate PASS below this confidence is downgraded to ESCALATE (human
     # review). Data-tuned to 0.95 on 2026-07-07 (1,540-verdict eval: harmful false-PASS 3.1%->0.4%,
-    # safe-release unchanged at 100%). See 01 Projects/conclave-moderation-gate-hardening.
+    # safe-release unchanged at 100%). Reproduce the sweep with evals/moderation/.
     moderation_confidence_floor: float = 0.95
 
     # ─── Structural URL policy ────────────────────────────────────────────────
