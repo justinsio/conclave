@@ -7,7 +7,7 @@ from dataclasses import dataclass
 class SeedConfig:
     api_url: str
     agent_key: str
-    deepseek_api_key: str
+    llm_api_key: str
     specialty: str
     subscriptions: list[str]
     llm_provider: str
@@ -16,8 +16,8 @@ class SeedConfig:
     open_thread_threshold: float
     draft_after_minutes: int
     answer_after_minutes: int
-    deepseek_base_url: str
-    deepseek_model: str
+    llm_base_url: str
+    llm_model: str
     ollama_base_url: str
     ollama_model: str
     telegram_webhook: str | None
@@ -27,20 +27,51 @@ def load_config(env: dict | None = None) -> SeedConfig:
     e = env if env is not None else os.environ
     specialty = e.get("SEED_SPECIALTY", "general")
     subs = [specialty] if specialty == "general" else [specialty, "general"]
+
+    # Default to ollama: a $0 local-first default that boots with no API key.
+    provider = e.get("LLM_PROVIDER", "ollama")
+    llm_api_key = e.get("LLM_API_KEY", "")
+    llm_base_url = e.get("LLM_BASE_URL", "")
+
+    # Reject unknown values explicitly. Without this, the legacy
+    # LLM_PROVIDER=deepseek (still in the old .env.example) skips validation,
+    # then make_provider falls through to the hosted client with an empty
+    # base_url — every completion POSTs to "/chat/completions" with no host.
+    if provider not in ("ollama", "openai_compatible"):
+        raise ValueError(
+            f"LLM_PROVIDER={provider!r} is not recognised — use 'ollama' (local, "
+            "no API key) or 'openai_compatible' (any hosted OpenAI-compatible "
+            "endpoint, including DeepSeek: set LLM_BASE_URL=https://api.deepseek.com)"
+        )
+
+    # Only the hosted provider needs credentials. Requiring them unconditionally
+    # meant an Ollama-only self-hoster could not boot a seed at all.
+    if provider == "openai_compatible":
+        if not llm_api_key:
+            raise ValueError(
+                "LLM_PROVIDER=openai_compatible requires LLM_API_KEY "
+                "(use LLM_PROVIDER=ollama to run fully local with no key)"
+            )
+        if not llm_base_url:
+            raise ValueError(
+                "LLM_PROVIDER=openai_compatible requires LLM_BASE_URL, e.g. "
+                "https://api.deepseek.com or https://api.groq.com/openai/v1"
+            )
+
     return SeedConfig(
         api_url=e["CONCLAVE_API_URL"],
         agent_key=e["CONCLAVE_AGENT_KEY"],
-        deepseek_api_key=e["DEEPSEEK_API_KEY"],
+        llm_api_key=llm_api_key,
         specialty=specialty,
         subscriptions=subs,
-        llm_provider=e.get("LLM_PROVIDER", "deepseek"),
+        llm_provider=provider,
         poll_interval=int(e.get("POLL_INTERVAL_SECONDS", "10")),
         solo_threshold=float(e.get("SOLO_THRESHOLD", "0.85")),
         open_thread_threshold=float(e.get("OPEN_THREAD_THRESHOLD", "0.60")),
         draft_after_minutes=int(e.get("DRAFT_AFTER_MINUTES", "5")),
         answer_after_minutes=int(e.get("ANSWER_AFTER_MINUTES", "15")),
-        deepseek_base_url=e.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com"),
-        deepseek_model=e.get("DEEPSEEK_MODEL", "deepseek-chat"),
+        llm_base_url=llm_base_url,
+        llm_model=e.get("LLM_MODEL", "deepseek-chat"),
         ollama_base_url=e.get("OLLAMA_BASE_URL", "http://localhost:11434"),
         ollama_model=e.get("OLLAMA_MODEL", "llama3.1:8b"),
         telegram_webhook=e.get("TELEGRAM_WEBHOOK") or None,
