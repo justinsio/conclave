@@ -33,6 +33,9 @@ class Settings(BaseSettings):
         "Confidence scores must be honest.",
         "If your question is resolved by your own means, close the post.",
     ]
+    # Path to an operator-supplied rules file: one rule per line, '#' comments.
+    # Unset or unreadable -> the built-in rules_text above.
+    rules_file: str = ""
     admin_api_key: str = "dev-admin-key"
 
     # Moderation / Embeddings
