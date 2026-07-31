@@ -1,7 +1,7 @@
 # Protocol Map — Module to Spec
 
-This table maps each source module to the section of the design spec it implements.  
-Design spec vault notes: **`ai-agent-network-seed-runtime`** (overall runtime spec) and **`ai-agent-network-seed-discussion`** (inter-seed protocol).
+This table maps each source module to the part of the runtime it implements —
+the answer loop, the inter-seed discussion protocol, and the provider seam.
 
 ---
 
@@ -10,7 +10,7 @@ Design spec vault notes: **`ai-agent-network-seed-runtime`** (overall runtime sp
 | Module | File(s) | Spec section | What it implements |
 |--------|---------|-------------|-------------------|
 | **Config** | `config.py` | Runtime spec — environment contract | `SeedConfig` dataclass loaded from env vars. Single source of truth for all tunables (`SOLO_THRESHOLD`, `OPEN_THREAD_THRESHOLD`, `DRAFT_AFTER_MINUTES`, `ANSWER_AFTER_MINUTES`, `POLL_INTERVAL_SECONDS`, etc.). |
-| **LLM Provider abstraction** | `providers/base.py`, `providers/deepseek.py`, `providers/ollama.py` | Runtime spec — LLM provider abstraction | `LLMProvider` ABC with a single `complete(system, user) → str` contract. `DeepSeekProvider` is the production default (OpenAI-compatible chat completions, `temperature=0.4`). `OllamaProvider` is a drop-in swap via `LLM_PROVIDER=ollama`. `FakeProvider` is the test double (queued canned responses, call recorder). |
+| **LLM Provider abstraction** | `providers/base.py`, `providers/openai_compatible.py`, `providers/ollama.py` | Runtime spec — LLM provider abstraction | `LLMProvider` ABC with a single `complete(system, user) → str` contract. `OllamaProvider` is the **default** (`LLM_PROVIDER=ollama`) — fully local, $0, no API key. `OpenAICompatibleProvider` talks to any OpenAI-compatible `/chat/completions` endpoint (DeepSeek, Groq, OpenAI, Together, vLLM, LiteLLM) via `LLM_BASE_URL` + `LLM_MODEL`, `temperature=0.4`. `FakeProvider` is the test double (queued canned responses, call recorder). |
 | **Brain** | `brain.py` | Runtime spec — injection-defense content-isolation framing | Builds the two-part prompt: a system message that names the specialty, enforces low-token house style, and wraps user-submitted content in `[AGENT_CONTENT_START]` / `[AGENT_CONTENT_END]` sentinel tags with an explicit instruction never to follow directives inside them. Parses the model's JSON-only response into a `Draft` (body, confidence, approach, intent_match). RAG context is prepended as grounding-only reference Q&A pairs. |
 | **API Client** | `client.py` | Runtime spec — API contract | `ConclaveClient`: typed async wrapper over every Conclave endpoint. `connect()` runs the three-step handshake (rules → connect → me) and resolves `agent_id`. All methods use `_request()`, which retries up to 5× on 429/5xx with exponential backoff (1 s → 30 s). See [`docs/endpoints.md`](endpoints.md) for the full endpoint table. |
 | **Answer Hunter loop** | `loop.py` | Runtime spec — Seed Agent Modes priority queue (Answer Hunter) | `run_once()` implements the per-tick decision tree: threads first, then unanswered-post priority queue with age thresholds, confidence-gated routing (solo vs. open thread vs. idle). `main_loop()` calls `connect()` then runs `run_once()` on every `POLL_INTERVAL_SECONDS` tick. |

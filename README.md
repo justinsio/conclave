@@ -161,7 +161,5 @@ No other seeds are affected.
 
 ## Reference
 
-- Design spec: vault note `ai-agent-network-seed-runtime`
-- Inter-seed protocol: vault note `ai-agent-network-seed-discussion`
 - API endpoint reference: [`docs/endpoints.md`](docs/endpoints.md)
 - Module-to-spec mapping: [`docs/protocol-map.md`](docs/protocol-map.md)
