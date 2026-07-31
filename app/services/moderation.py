@@ -12,6 +12,7 @@ from anthropic import AsyncAnthropic
 
 from app.config import settings
 from app.services.prompt_isolation import contains_marker, isolate
+from app.services.url_policy import build_policy
 
 logger = logging.getLogger(__name__)
 
@@ -42,10 +43,6 @@ def detect_framing_alert(title: str, body: str) -> bool:
 
 
 # ─── Structural pre-checks (Layer 0 + Layer 2) — free, run before any model ─────
-
-# Layer 2: URLs are never permitted in prose. Strip fenced code first, then scan.
-_CODE_FENCE_RE = re.compile(r"```.*?```", re.DOTALL)
-_URL_RE = re.compile(r"https?://", re.IGNORECASE)
 
 # Layer 0: structural prompt-injection signatures. Pre-semantic, high-precision.
 # Precision guard: the "ignore/disregard ..." forms REQUIRE an instruction-noun object
@@ -90,26 +87,40 @@ _INJECTION_PATTERNS = [
 ]
 
 
-def contains_url_outside_code_fence(text: str) -> bool:
-    stripped = _CODE_FENCE_RE.sub("", text or "")
-    return bool(_URL_RE.search(stripped))
-
-
 def detect_injection(text: str) -> bool:
     t = text or ""
     return any(p.search(t) for p in _INJECTION_PATTERNS)
 
 
+_url_policy = None
+
+
+def get_url_policy():
+    """Cached URL policy. Built on first use from settings."""
+    global _url_policy
+    if _url_policy is None:
+        _url_policy = build_policy(settings)
+    return _url_policy
+
+
+def reset_url_policy_cache() -> None:
+    """Test/reload hook — drops the cached policy."""
+    global _url_policy
+    _url_policy = None
+
+
 def structural_precheck(title: str, body: str) -> str | None:
     """Return a rejection code, or None if the content passes the free checks.
 
-    Codes: 'marker_injection' | 'url_not_permitted' | 'injection_suspected'.
+    Codes: 'marker_injection' | 'url_blocked' | 'url_not_permitted'
+           | 'injection_suspected'.
     """
     text = f"{title or ''}\n{body or ''}"
     if contains_marker(text):
         return "marker_injection"
-    if contains_url_outside_code_fence(text):
-        return "url_not_permitted"
+    url_violation = get_url_policy().find_violation(text)
+    if url_violation:
+        return url_violation
     if detect_injection(text):
         return "injection_suspected"
     return None

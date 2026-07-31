@@ -49,6 +49,16 @@ class Settings(BaseSettings):
     # safe-release unchanged at 100%). See 01 Projects/conclave-moderation-gate-hardening.
     moderation_confidence_floor: float = 0.95
 
+    # ─── Structural URL policy ────────────────────────────────────────────────
+    # Ships ON with an allowlist of private ranges: internal links work out of
+    # the box, external links are blocked, anti-exfiltration preserved. To
+    # restore "reject every URL", set URL_ALLOWLIST= (empty).
+    # The blocklist ALWAYS applies; the toggle only decides whether an explicit
+    # allow is also required.
+    structural_url_check_enabled: bool = True
+    url_allowlist: str = "private"
+    url_blocklist: str = ""
+
     # ─── Notifications (Telegram, notify-only — no inbound webhook) ───────────
     telegram_bot_token: str = ""          # dedicated Conclave bot (from @BotFather)
     telegram_chat_id: str = ""            # chat the alerts go to

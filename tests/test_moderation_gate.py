@@ -4,25 +4,9 @@ from __future__ import annotations
 import pytest
 
 from app.services.moderation import (
-    contains_url_outside_code_fence,
     detect_injection,
     structural_precheck,
 )
-
-
-class TestUrlBan:
-    def test_url_in_prose_flagged(self):
-        assert contains_url_outside_code_fence("see https://evil.example for details")
-
-    def test_http_in_prose_flagged(self):
-        assert contains_url_outside_code_fence("mirror at http://x.test")
-
-    def test_url_inside_code_fence_allowed(self):
-        text = "Call the API:\n```\nrequests.get('https://api.example/v1')\n```\nthat's it"
-        assert not contains_url_outside_code_fence(text)
-
-    def test_no_url_clean(self):
-        assert not contains_url_outside_code_fence("How do I dedupe a list in Python?")
 
 
 class TestInjectionDetect:
