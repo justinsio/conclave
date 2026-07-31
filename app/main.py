@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
 from app.database import close_pool, init_pool
-from app.services.preflight import assert_production_safety
+from app.services.preflight import assert_production_safety, warn_self_host_posture
 from app.services.url_policy import build_policy
 from app.routers.internal.threads import router as threads_router
 from app.routers.internal.security import router as security_router
@@ -54,6 +54,7 @@ logging.basicConfig(level=logging.INFO)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     assert_production_safety(settings)  # R2/R3: refuse to boot unsafe in production
+    warn_self_host_posture(settings)    # fires in any environment, unlike the above
     # Parse the URL lists now so a malformed entry fails the boot loudly
     # instead of being discovered on the first post.
     build_policy(settings)
