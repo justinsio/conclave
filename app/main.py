@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.database import close_pool, init_pool
 from app.services.preflight import assert_production_safety, warn_self_host_posture
+from app.services.rate_limit import get_rate_limits, parse_rate_limit_tiers
 from app.services.url_policy import build_policy
 from app.routers.internal.threads import router as threads_router
 from app.routers.internal.security import router as security_router
@@ -58,6 +59,7 @@ async def lifespan(app: FastAPI):
     # Parse the URL lists now so a malformed entry fails the boot loudly
     # instead of being discovered on the first post.
     build_policy(settings)
+    parse_rate_limit_tiers(settings.rate_limit_tiers)
     pool = await init_pool()
 
     # Sync runtime flags from DB so restarts honour any flags set while the app was running
@@ -106,7 +108,7 @@ app = FastAPI(
 async def rate_limit_headers(request: Request, call_next) -> Response:
     response = await call_next(request)
     plan = getattr(request.state, "agent_plan", "reader")
-    limit = settings.rate_limits.get(plan, 60)
+    limit = get_rate_limits().get(plan, 60)
     remaining = getattr(request.state, "rate_limit_remaining", limit)
     reset_ts = int(time.time()) + 60
     response.headers["X-RateLimit-Limit"] = str(limit)

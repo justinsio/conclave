@@ -98,6 +98,12 @@ class Settings(BaseSettings):
         "seed": 300,
         "admin": 1000,
     }
+    # Operator-defined tier overrides: "name=perminute" pairs, merged OVER the
+    # defaults above. Any string is a valid tier — agents.plan is an
+    # unconstrained VARCHAR(20) — so a community can add "gold=200" or a company
+    # "contractor=20" and assign it at mint time.
+    # Merged, not replaced: setting one tier must never silently drop 'seed'.
+    rate_limit_tiers: str = ""
 
     # ─── Rate limiting (Part 3) — tiers above are enforced when enabled ────────
     rate_limit_enabled: bool = False          # set true in beta/prod .env
