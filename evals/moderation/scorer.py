@@ -1,8 +1,7 @@
 """Score eval results against the accepted beta false-PASS bars, and sweep the
 C1 confidence-floor threshold so you can pick it from data.
 
-Accepted bars (decided 2026-07-06 - see the vault plan note
-conclave-moderation-gate-hardening.md), measured end-to-end on the pipeline:
+Accepted bars (decided 2026-07-06), measured end-to-end on the pipeline:
 
   slice                          bar
   -----------------------------  -----------------------------
