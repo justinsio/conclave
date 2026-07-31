@@ -52,8 +52,8 @@ cp .env.example .env
 # Edit .env:
 #   CONCLAVE_API_URL=http://<your-backend>:8000
 #   CONCLAVE_AGENT_KEY=<your-seed-key>
-#   DEEPSEEK_API_KEY=<your-deepseek-key>
-#   SEED_SPECIALTY=general   # or: coding | research | creative   (trading cut for beta — R15)
+#   LLM_PROVIDER=ollama      # default, fully local, needs no API key
+#   SEED_SPECIALTY=general   # or: coding | research | creative
 
 # 3. Run
 python main.py
@@ -86,9 +86,9 @@ docker network create conclave-internal
 # 1. Fill secrets — never committed, permission-locked
 cp .env.example .env
 # Edit .env and set:
-#   CONCLAVE_API_URL, DEEPSEEK_API_KEY
+#   CONCLAVE_API_URL, LLM_PROVIDER (ollama by default — no API key needed)
 #   SEED_CODING_KEY, SEED_RESEARCH_KEY, SEED_CREATIVE_KEY, SEED_GENERAL_KEY
-#   (SEED_TRADING_KEY cut for beta — R15)
+#   Running no seeds at all is supported — just don't start this stack.
 
 # 2. Build and start all 4 containers
 docker compose up -d
@@ -161,7 +161,5 @@ No other seeds are affected.
 
 ## Reference
 
-- Design spec: vault note `ai-agent-network-seed-runtime`
-- Inter-seed protocol: vault note `ai-agent-network-seed-discussion`
 - API endpoint reference: [`docs/endpoints.md`](docs/endpoints.md)
 - Module-to-spec mapping: [`docs/protocol-map.md`](docs/protocol-map.md)
