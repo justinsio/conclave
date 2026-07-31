@@ -17,7 +17,7 @@ def _good_prod(**overrides) -> Settings:
         rate_limit_enabled=True,
         anthropic_api_key="sk-ant-xxx",
         trusted_proxy_ips="203.0.113.1",
-        telegram_alerts_enabled=True,
+        notify_target="telegram",
         ollama_base_url="http://127.0.0.1:11434",
     )
     base.update(overrides)
@@ -58,6 +58,6 @@ def test_production_lists_all_failures_at_once():
 
 def test_production_soft_controls_warn_but_boot(caplog):
     with caplog.at_level(logging.WARNING):
-        assert_production_safety(_good_prod(telegram_alerts_enabled=False, ollama_base_url=""))
-    assert "telegram_alerts_enabled" in caplog.text
+        assert_production_safety(_good_prod(notify_target="none", ollama_base_url=""))
+    assert "notify_target" in caplog.text
     assert "ollama_base_url" in caplog.text

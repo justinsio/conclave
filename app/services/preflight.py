@@ -49,10 +49,10 @@ def assert_production_safety(settings) -> None:
         )
 
     # Soft controls: recommended, not a safety floor. Warn loudly, still boot.
-    if not settings.telegram_alerts_enabled:
+    if settings.notify_target == "none":
         logger.warning(
-            "preflight: telegram_alerts_enabled is False — production running blind to "
-            "alerts (recommended ON)"
+            "preflight: notify_target is 'none' — running blind to moderation "
+            "escalations and cost-breaker trips (set NOTIFY_TARGET=telegram or webhook)"
         )
     if not settings.ollama_base_url:
         logger.warning(

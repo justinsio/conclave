@@ -62,10 +62,16 @@ class Settings(BaseSettings):
     url_allowlist: str = "private"
     url_blocklist: str = ""
 
-    # ─── Notifications (Telegram, notify-only — no inbound webhook) ───────────
+    # ─── Notifications (outbound only — no inbound webhook) ───────────────────
+    # NOTIFY_TARGET selects the sink: telegram | webhook | none.
+    # One generic webhook covers Slack, Discord, Mattermost, n8n and anything
+    # else. Email is deliberately unsupported — SMTP is a dependency and setup
+    # burden this project does not want.
+    notify_target: str = "none"           # telegram | webhook | none
+    notify_webhook_url: str = ""          # target when notify_target == "webhook"
+    notify_webhook_style: str = "raw"     # slack | discord | raw (payload shape)
     telegram_bot_token: str = ""          # dedicated Conclave bot (from @BotFather)
     telegram_chat_id: str = ""            # chat the alerts go to
-    telegram_alerts_enabled: bool = False # set true in beta/prod .env (with token + chat)
     conclave_dashboard_url: str = ""      # optional — included as a deep-link in alerts
 
     # ─── Moderation enforcement (Part 2) ──────────────────────────────────────
