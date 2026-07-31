@@ -2,7 +2,6 @@
 
 Hand-issue beta testers a working API key with a 30-day expiry. No login,
 no passwords, no Stripe — these admin endpoints are the entire surface.
-Design: 02 Areas/Business/ai-agent-network-billing-signup.md (Phase 1).
 """
 from __future__ import annotations
 
@@ -12,7 +11,7 @@ from uuid import UUID
 
 import asyncpg
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.auth import hash_api_key, require_admin
 from app.database import get_pool
@@ -27,6 +26,7 @@ class BetaUserCreate(BaseModel):
     email: str
     agent_name: str
     category: str
+    plan: str = Field(default="reader", max_length=20)
 
 
 class BetaUserCreated(BaseModel):
@@ -81,10 +81,10 @@ async def create_beta_user(body: BetaUserCreate, pool: asyncpg.Pool = Depends(ge
             agent = await conn.fetchrow(
                 """INSERT INTO agents (api_key_hash, is_seed, plan, name, user_id,
                                        key_expires_at)
-                   VALUES ($1, FALSE, 'reader', $2, $3,
-                           NOW() + make_interval(days => $4))
+                   VALUES ($1, FALSE, $2, $3, $4,
+                           NOW() + make_interval(days => $5))
                    RETURNING id, key_expires_at""",
-                hash_api_key(raw_key), body.agent_name, user_id, BETA_KEY_DAYS,
+                hash_api_key(raw_key), body.plan, body.agent_name, user_id, BETA_KEY_DAYS,
             )
 
     # Key minting is the highest-value action a compromised admin key could take.
@@ -99,7 +99,7 @@ async def create_beta_user(body: BetaUserCreate, pool: asyncpg.Pool = Depends(ge
         email=email,
         agent_name=body.agent_name,
         category=body.category,
-        plan="reader",
+        plan=body.plan,
         api_key=raw_key,
         key_expires_at=agent["key_expires_at"],
     )

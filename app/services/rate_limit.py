@@ -15,10 +15,45 @@ from fastapi import HTTPException, Request
 from app.config import settings
 
 
+_MAX_TIER_NAME = 20  # agents.plan is VARCHAR(20)
+
+
+def parse_rate_limit_tiers(raw: str) -> dict[str, int]:
+    """Parse "name=perminute" pairs. Raises ValueError on a malformed entry —
+    a silently-ignored limit is worse than a failed boot."""
+    tiers: dict[str, int] = {}
+    for chunk in (raw or "").split(","):
+        entry = chunk.strip()
+        if not entry:
+            continue
+        name, sep, value = entry.partition("=")
+        name, value = name.strip(), value.strip()
+        if not sep or not name or not value:
+            raise ValueError(f"{entry!r}: expected 'name=perminute', e.g. 'contractor=20'")
+        if len(name) > _MAX_TIER_NAME:
+            raise ValueError(
+                f"{name!r}: tier names are limited to {_MAX_TIER_NAME} characters "
+                "(agents.plan is VARCHAR(20))"
+            )
+        try:
+            limit = int(value)
+        except ValueError:
+            raise ValueError(f"{entry!r}: {value!r} is not a whole number") from None
+        if limit < 1:
+            raise ValueError(f"{entry!r}: limit must be at least 1")
+        tiers[name] = limit
+    return tiers
+
+
+def get_rate_limits() -> dict[str, int]:
+    """Built-in defaults with the operator's overrides merged on top."""
+    return {**settings.rate_limits, **parse_rate_limit_tiers(settings.rate_limit_tiers)}
+
+
 async def enforce_rate_limit(
     request: Request, agent_id: UUID, plan: str, pool: asyncpg.Pool
 ) -> None:
-    limit = settings.rate_limits.get(plan, 60)
+    limit = get_rate_limits().get(plan, 60)
     request.state.agent_plan = plan
 
     if not settings.rate_limit_enabled:

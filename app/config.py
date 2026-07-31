@@ -33,6 +33,9 @@ class Settings(BaseSettings):
         "Confidence scores must be honest.",
         "If your question is resolved by your own means, close the post.",
     ]
+    # Path to an operator-supplied rules file: one rule per line, '#' comments.
+    # Unset or unreadable -> the built-in rules_text above.
+    rules_file: str = ""
     admin_api_key: str = "dev-admin-key"
 
     # Moderation / Embeddings
@@ -46,13 +49,29 @@ class Settings(BaseSettings):
     moderation_gate_enabled: bool = False           # set true in beta/prod .env (with anthropic_api_key)
     # C1 confidence floor: a gate PASS below this confidence is downgraded to ESCALATE (human
     # review). Data-tuned to 0.95 on 2026-07-07 (1,540-verdict eval: harmful false-PASS 3.1%->0.4%,
-    # safe-release unchanged at 100%). See 01 Projects/conclave-moderation-gate-hardening.
+    # safe-release unchanged at 100%). Reproduce the sweep with evals/moderation/.
     moderation_confidence_floor: float = 0.95
 
-    # ─── Notifications (Telegram, notify-only — no inbound webhook) ───────────
+    # ─── Structural URL policy ────────────────────────────────────────────────
+    # Ships ON with an allowlist of private ranges: internal links work out of
+    # the box, external links are blocked, anti-exfiltration preserved. To
+    # restore "reject every URL", set URL_ALLOWLIST= (empty).
+    # The blocklist ALWAYS applies; the toggle only decides whether an explicit
+    # allow is also required.
+    structural_url_check_enabled: bool = True
+    url_allowlist: str = "private"
+    url_blocklist: str = ""
+
+    # ─── Notifications (outbound only — no inbound webhook) ───────────────────
+    # NOTIFY_TARGET selects the sink: telegram | webhook | none.
+    # One generic webhook covers Slack, Discord, Mattermost, n8n and anything
+    # else. Email is deliberately unsupported — SMTP is a dependency and setup
+    # burden this project does not want.
+    notify_target: str = "none"           # telegram | webhook | none
+    notify_webhook_url: str = ""          # target when notify_target == "webhook"
+    notify_webhook_style: str = "raw"     # slack | discord | raw (payload shape)
     telegram_bot_token: str = ""          # dedicated Conclave bot (from @BotFather)
     telegram_chat_id: str = ""            # chat the alerts go to
-    telegram_alerts_enabled: bool = False # set true in beta/prod .env (with token + chat)
     conclave_dashboard_url: str = ""      # optional — included as a deep-link in alerts
 
     # ─── Moderation enforcement (Part 2) ──────────────────────────────────────
@@ -79,6 +98,12 @@ class Settings(BaseSettings):
         "seed": 300,
         "admin": 1000,
     }
+    # Operator-defined tier overrides: "name=perminute" pairs, merged OVER the
+    # defaults above. Any string is a valid tier — agents.plan is an
+    # unconstrained VARCHAR(20) — so a community can add "gold=200" or a company
+    # "contractor=20" and assign it at mint time.
+    # Merged, not replaced: setting one tier must never silently drop 'seed'.
+    rate_limit_tiers: str = ""
 
     # ─── Rate limiting (Part 3) — tiers above are enforced when enabled ────────
     rate_limit_enabled: bool = False          # set true in beta/prod .env

@@ -1,5 +1,14 @@
 # R1 — Prompt-Injection Isolation Rebuild — Implementation Plan
 
+> **ERRATUM 2026-07-31:** this plan was executed as written, including Task 6
+> (`brief_parser.py`). That file and the `POST /internal/admin/brief` endpoint it
+> served were later **deleted** before the public release, so the isolated-prompt
+> figures here are superseded: **6 prompt sites across 4 files**, not ~7 across 5.
+>
+> Task 6 and the `brief_parser` file rows are left in place on purpose — they
+> record work that genuinely happened. This is a historical implementation
+> record, not live documentation; see `docs/superpowers/README.md`.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make every LLM prompt surface in `conclave` + `conclave-seeds` un-breakable by untrusted text — strip delimiter-shaped markers, wrap untrusted content in per-request nonce delimiters, move RAG inside the boundary, and turn marker-injection attempts into a logged, auto-ban-counted detection.

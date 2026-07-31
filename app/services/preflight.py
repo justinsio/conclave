@@ -49,13 +49,34 @@ def assert_production_safety(settings) -> None:
         )
 
     # Soft controls: recommended, not a safety floor. Warn loudly, still boot.
-    if not settings.telegram_alerts_enabled:
+    if settings.notify_target == "none":
         logger.warning(
-            "preflight: telegram_alerts_enabled is False — production running blind to "
-            "alerts (recommended ON)"
+            "preflight: notify_target is 'none' — running blind to moderation "
+            "escalations and cost-breaker trips (set NOTIFY_TARGET=telegram or webhook)"
         )
     if not settings.ollama_base_url:
         logger.warning(
             "preflight: ollama_base_url is empty — secondary consensus gate disabled "
             "(recommended set)"
+        )
+
+
+def warn_self_host_posture(settings) -> None:
+    """Posture warnings that must reach an operator in ANY environment.
+
+    Deliberately NOT part of assert_production_safety. That function returns
+    immediately unless environment == 'production', and inside production a
+    disabled moderation gate is already a HARD failure that raises before the
+    soft-warning section runs — so this warning placed there would be
+    unreachable in both directions.
+
+    The operator who needs to hear it is exactly the self-hoster running
+    without ENVIRONMENT=production, who has deliberately or accidentally
+    turned the paid gate off and should know what that leaves them with.
+    """
+    if not settings.moderation_gate_enabled:
+        logger.warning(
+            "preflight: moderation_gate_enabled is False — the structural pre-checks "
+            "are the ONLY moderation. Correct for a trusted private network; make sure "
+            "that is what you intend"
         )

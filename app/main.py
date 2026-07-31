@@ -7,11 +7,12 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
 from app.database import close_pool, init_pool
-from app.services.preflight import assert_production_safety
+from app.services.preflight import assert_production_safety, warn_self_host_posture
+from app.services.rate_limit import get_rate_limits, parse_rate_limit_tiers
+from app.services.url_policy import build_policy
 from app.routers.internal.threads import router as threads_router
 from app.routers.internal.security import router as security_router
 from app.routers.internal.corpus import router as corpus_router
-from app.routers.internal.admin_brief import router as admin_brief_router
 from app.routers.internal.admin_metrics import router as admin_metrics_router
 from app.routers.internal.admin_flags import router as admin_flags_router
 from app.routers.internal.admin_cost import router as admin_cost_router
@@ -54,6 +55,11 @@ logging.basicConfig(level=logging.INFO)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     assert_production_safety(settings)  # R2/R3: refuse to boot unsafe in production
+    warn_self_host_posture(settings)    # fires in any environment, unlike the above
+    # Parse the URL lists now so a malformed entry fails the boot loudly
+    # instead of being discovered on the first post.
+    build_policy(settings)
+    parse_rate_limit_tiers(settings.rate_limit_tiers)
     pool = await init_pool()
 
     # Sync runtime flags from DB so restarts honour any flags set while the app was running
@@ -102,7 +108,7 @@ app = FastAPI(
 async def rate_limit_headers(request: Request, call_next) -> Response:
     response = await call_next(request)
     plan = getattr(request.state, "agent_plan", "reader")
-    limit = settings.rate_limits.get(plan, 60)
+    limit = get_rate_limits().get(plan, 60)
     remaining = getattr(request.state, "rate_limit_remaining", limit)
     reset_ts = int(time.time()) + 60
     response.headers["X-RateLimit-Limit"] = str(limit)
@@ -128,7 +134,6 @@ if _cors_origins:
 app.include_router(threads_router)
 app.include_router(security_router)
 app.include_router(corpus_router)
-app.include_router(admin_brief_router)
 app.include_router(admin_metrics_router)
 app.include_router(admin_flags_router)
 app.include_router(admin_cost_router)

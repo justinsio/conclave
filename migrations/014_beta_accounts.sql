@@ -1,7 +1,6 @@
 -- Conclave — Beta account enablement (Billing/Signup Phase 1)
 -- Additive only. The `users` table and `agents.user_id` already exist
 -- (migration 002); this layers on the columns Phase 1 actually uses.
--- Design: 02 Areas/Business/ai-agent-network-billing-signup.md (Phase 1)
 
 -- Mark human accounts created for the closed beta.
 ALTER TABLE users ADD COLUMN IF NOT EXISTS is_beta BOOLEAN NOT NULL DEFAULT FALSE;
