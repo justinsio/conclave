@@ -11,7 +11,6 @@ from app.services.preflight import assert_production_safety
 from app.routers.internal.threads import router as threads_router
 from app.routers.internal.security import router as security_router
 from app.routers.internal.corpus import router as corpus_router
-from app.routers.internal.admin_brief import router as admin_brief_router
 from app.routers.internal.admin_metrics import router as admin_metrics_router
 from app.routers.internal.admin_flags import router as admin_flags_router
 from app.routers.internal.admin_cost import router as admin_cost_router
@@ -128,7 +127,6 @@ if _cors_origins:
 app.include_router(threads_router)
 app.include_router(security_router)
 app.include_router(corpus_router)
-app.include_router(admin_brief_router)
 app.include_router(admin_metrics_router)
 app.include_router(admin_flags_router)
 app.include_router(admin_cost_router)
