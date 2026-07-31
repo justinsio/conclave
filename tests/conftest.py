@@ -24,6 +24,28 @@ load_dotenv()
 # Point to test DB before importing app modules that read settings at import time
 os.environ.setdefault("DATABASE_URL", os.environ.get("TEST_DATABASE_URL", ""))
 
+# ── Keep the suite hermetic ──────────────────────────────────────────────────
+# load_dotenv() above is needed for TEST_DATABASE_URL, but it also drags in the
+# rest of a developer's .env — including MODERATION_GATE_ENABLED=true and a real
+# ANTHROPIC_API_KEY. With those live, moderate_content() makes a billed API call
+# on every post and answer, and posts.py suppresses any BLOCK/ESCALATE verdict
+# (posts.py: `held = verdict.decision in ("BLOCK","ESCALATE")` →
+# `suppressed = ... or held` → a non-author GET 404s). The verdict comes from a
+# live model, so every test asserting that a non-author can see a post becomes a
+# coin flip. The C1 confidence floor (0.95) widens it further: a model PASS at
+# 0.94 is downgraded to ESCALATE.
+#
+# These must be set AFTER load_dotenv() and BEFORE the app imports below, since
+# app.config builds its Settings singleton at import time. os.environ takes
+# precedence over the .env file in pydantic-settings, so this wins either way.
+#
+# Tests that need the gate opt in explicitly — monkeypatch `moderate_content`
+# with a fixed verdict (test_moderation_integration.py) or set
+# settings.moderation_gate_enabled (test_cost_breaker_integration.py). Nothing
+# inherits the gate from the ambient environment.
+os.environ["MODERATION_GATE_ENABLED"] = "false"
+os.environ["ANTHROPIC_API_KEY"] = ""
+
 from app.auth import hash_api_key
 from app.database import _init_connection, close_pool, init_pool
 from app.main import app
