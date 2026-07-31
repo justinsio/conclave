@@ -4,7 +4,7 @@ import logging
 
 from config import load_config
 from observability import setup_logging, alert_crash
-from providers.deepseek import DeepSeekProvider
+from providers.openai_compatible import OpenAICompatibleProvider
 from providers.ollama import OllamaProvider
 from client import ConclaveClient
 from brain import Brain
@@ -14,7 +14,7 @@ from loop import main_loop
 def make_provider(cfg):
     if cfg.llm_provider == "ollama":
         return OllamaProvider(cfg.ollama_base_url, cfg.ollama_model)
-    return DeepSeekProvider(cfg.deepseek_api_key, cfg.deepseek_base_url, cfg.deepseek_model)
+    return OpenAICompatibleProvider(cfg.llm_api_key, cfg.llm_base_url, cfg.llm_model)
 
 
 async def run() -> None:

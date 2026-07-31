@@ -3,8 +3,12 @@ import httpx
 from providers.base import Completion, LLMProvider
 
 
-class DeepSeekProvider(LLMProvider):
-    """OpenAI-compatible chat completion against DeepSeek."""
+class OpenAICompatibleProvider(LLMProvider):
+    """Chat completion against any OpenAI-compatible /chat/completions endpoint.
+
+    Works with OpenAI, DeepSeek, Groq, Together, OpenRouter, vLLM, LM Studio,
+    and LiteLLM — set LLM_BASE_URL and LLM_MODEL to match your provider.
+    """
     def __init__(self, api_key: str, base_url: str, model: str, http: httpx.AsyncClient | None = None):
         self._key = api_key
         self._model = model
