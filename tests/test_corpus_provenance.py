@@ -155,3 +155,37 @@ async def test_ingest_still_skips_entirely_without_ollama(monkeypatch):
             raise AssertionError("run_ingest must not query when Ollama is absent")
 
     assert await corpus_pipeline.run_ingest(_Boom()) == 0
+
+
+# ─── Boot floors ──────────────────────────────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    "field", ["corpus_quarantine_days", "corpus_upvote_threshold"]
+)
+def test_zero_is_rejected_at_boot(field):
+    """0 reads as "disabled" to a human but is destructive to the code: it
+    bypasses the quarantine / qualifies every answer on the network.
+
+    NOTE: asserts on the raised error, never on settings.<attr>. Asserting
+    directly on a Settings attribute makes pytest's assertion rewriting print
+    the entire Settings repr — API key and DB password included — into test
+    output and CI logs. That happened on 2026-07-31 and forced a key rotation.
+    """
+    from pydantic import ValidationError
+    from app.config import Settings
+
+    with pytest.raises(ValidationError) as exc:
+        Settings(**{field: 0})
+    assert "must be >= 1" in str(exc.value)
+
+
+@pytest.mark.parametrize(
+    "field", ["corpus_quarantine_days", "corpus_upvote_threshold"]
+)
+def test_one_is_accepted_at_boot(field):
+    """The floor is 1, not 2 — don't over-reject."""
+    from app.config import Settings
+
+    value = getattr(Settings(**{field: 1}), field)
+    assert value == 1
