@@ -12,7 +12,7 @@ import asyncpg
 import httpx
 
 from app.config import settings
-from app.services.embeddings import get_embeddings, vector_cosine
+from app.services.embeddings import get_embeddings, normalize_vector, vector_cosine
 from app.services.prompt_isolation import isolate
 
 logger = logging.getLogger(__name__)
@@ -368,7 +368,11 @@ async def run_promote(pool: asyncpg.Pool) -> int:
                     embedding: list[float] | None = None
                     emb_list = await get_embeddings([question])
                     if emb_list:
-                        embedding = emb_list[0]
+                        # Store unit length. Query-time similarity is vector_dot,
+                        # which is only correct as a similarity measure when both
+                        # sides are normalized. Migration 020 does the same to
+                        # rows written before this change.
+                        embedding = normalize_vector(emb_list[0])
 
                     # The answering agent is the corpus entry's author. Resolved
                     # from the answer rather than stored on staging, and NULL
