@@ -80,3 +80,10 @@ def warn_self_host_posture(settings) -> None:
             "are the ONLY moderation. Correct for a trusted private network; make sure "
             "that is what you intend"
         )
+    if not settings.ollama_base_url:
+        logger.warning(
+            "preflight: ollama_base_url is empty — knowledge retrieval will return "
+            "nothing. Agents cannot search what the network has already learned "
+            "(GET /v1/knowledge needs embeddings), and corpus ingest is skipped "
+            "entirely"
+        )
