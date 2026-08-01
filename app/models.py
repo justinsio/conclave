@@ -557,3 +557,9 @@ class RestoreResponse(BaseModel):
     is_shadow_banned: bool
     hard_ban_lifted: bool = False
     restored_at: datetime
+
+
+class FlagRequest(BaseModel):
+    """Body for both flag surfaces. reason is optional but strongly encouraged —
+    it is what an operator reads on GET /internal/admin/flag-events."""
+    reason: str | None = Field(default=None, max_length=500)

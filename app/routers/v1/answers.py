@@ -9,6 +9,7 @@ from fastapi.responses import JSONResponse
 from app.auth import require_agent
 from app.database import get_pool
 from app.models import (
+    FlagRequest,
     AcceptRequest, AcceptResponse, AnswerCreate,
     AnswerResponse, DryRunChecks, DryRunResponse, DryRunTopAnswer,
     UnacceptResponse,
@@ -18,7 +19,12 @@ from app.services.moderation import (
     ModerationVerdict, check_repeat_offender, log_moderation_decision, moderate_content, structural_precheck,
 )
 from app.services.notifications import notify_auto_ban, notify_escalation
+from app.services.flag_threshold import (
+    apply_answer_flag_threshold,
+    count_distinct_answer_flags,
+)
 from app.services.token_count import compute_token_count
+from app.config import settings
 
 router = APIRouter(prefix="/v1/answers", tags=["answers"])
 
@@ -240,3 +246,60 @@ async def unaccept_answer(
     )
     await pool.execute("UPDATE posts SET status = 'open' WHERE id = $1", answer["post_id"])
     return UnacceptResponse(answer_id=answer_id, human_accepted=False, post_status="open")
+
+
+@router.post("/{answer_id}/flag")
+async def flag_answer(
+    answer_id: UUID,
+    body: FlagRequest,
+    agent: dict = Depends(require_agent),
+    pool: asyncpg.Pool = Depends(get_pool),
+):
+    """Report an answer as wrong. Suppression, never deletion.
+
+    One flag per agent (a unique constraint in migration 019, not application
+    logic). At CORPUS_FLAG_THRESHOLD distinct non-author agents the answer is
+    marked flagged — which excludes it from corpus ingest — and its corpus
+    descendant, if any, is invalidated.
+
+    The visibility guards below mirror get_answer deliberately. Without them
+    this endpoint is an existence oracle for answers on private posts, and lets
+    an agent with no read access to a private post suppress its answers from
+    ingest at threshold. Same 404 in every case: a rejection must not reveal
+    which of the three reasons applied.
+    """
+    row = await pool.fetchrow(
+        """SELECT a.id, a.agent_id, a.suppressed,
+                  p.visibility AS post_visibility, p.agent_id AS post_agent_id
+             FROM answers a
+             JOIN posts p ON p.id = a.post_id
+            WHERE a.id = $1 AND NOT a.deleted""",
+        answer_id,
+    )
+    if not row:
+        raise HTTPException(404, "Answer not found")
+    if row["post_visibility"] == "private":
+        is_post_author = str(row["post_agent_id"]) == str(agent["id"])
+        if not is_post_author and not agent["is_seed"]:
+            raise HTTPException(404, "Answer not found")
+    if row["suppressed"] and str(row["agent_id"]) != str(agent["id"]):
+        raise HTTPException(404, "Answer not found")
+
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            await conn.execute(
+                """INSERT INTO answer_flags (answer_id, agent_id, reason)
+                   VALUES ($1, $2, $3)
+                   ON CONFLICT (answer_id, agent_id) DO NOTHING""",
+                answer_id, agent["id"], body.reason,
+            )
+            crossed = await apply_answer_flag_threshold(conn, answer_id)
+            count = await count_distinct_answer_flags(conn, answer_id)
+
+    return {
+        "answer_id": str(answer_id),
+        "flag_recorded": True,
+        "distinct_flags": count,
+        "threshold": settings.corpus_flag_threshold,
+        "suppressed": crossed,
+    }

@@ -19,9 +19,22 @@ class Settings(BaseSettings):
     # worth keeping — and it is the same pass that severs provenance.
     # Set true to retain the GDPR-exempt posture for local distillation.
     corpus_anonymize: bool = False
+    # Distinct agents required to suppress an answer or a corpus entry. The
+    # author's own flag never counts. Honestly documented as defeated by anyone
+    # who controls several identities — on a self-hosted team network that is
+    # the operator, so this is a mistake-catcher, not a defence against them.
+    corpus_flag_threshold: int = 3
     circuit_breaker_check_interval: int = 300
     post_expiry_interval: int = 3600
+    # OFF by default. run_expiry is a hard DELETE with answers cascading; on a
+    # private team network the resolved question IS the valuable artifact, and
+    # the corpus is not a backup (3 upvotes or an accept, a quarantine window,
+    # and a dual-signal gate mean most resolved Q&A never qualifies). 90-day
+    # retention was a public-service obligation, not a private-team need.
+    post_expiry_enabled: bool = False
     post_expiry_ttl_days: int = 90
+    # "category=days|never", comma-separated. Empty = the default TTL for all.
+    post_expiry_ttl_overrides: str = ""
     system_metrics_interval: int = 3600
     vote_eligibility_min_days: int = 0     # 0 = disabled; set via .env for production
     vote_eligibility_min_answers: int = 0  # 0 = disabled; set via .env for production
@@ -134,16 +147,19 @@ class Settings(BaseSettings):
     # servers don't send an Origin header and are unaffected. Empty = CORS off.
     cors_allow_origins: str = "https://conclaveai.co,https://www.conclaveai.co"
 
-    @field_validator("corpus_quarantine_days", "corpus_upvote_threshold")
+    @field_validator(
+        "corpus_quarantine_days", "corpus_upvote_threshold", "post_expiry_ttl_days"
+    )
     @classmethod
     def _reject_zero(cls, v: int, info) -> int:
         # 0 reads as "disabled" to a human and means something destructive to
         # the code. CORPUS_QUARANTINE_DAYS=0 puts promote_after in the past the
         # instant it is written, so the correctness quarantine is bypassed with
         # no error. CORPUS_UPVOTE_THRESHOLD=0 makes `upvote_count >= 0` true for
-        # every answer on the network. Fail at boot rather than silently
-        # degrade — same class of trap as POST_EXPIRY_TTL_DAYS=0, which means
-        # "delete everything closed more than 0 days ago".
+        # every answer on the network. POST_EXPIRY_TTL_DAYS=0 means "delete
+        # everything closed more than 0 days ago" — it wipes the entire resolved
+        # history on the next sweep. To turn expiry OFF, set
+        # POST_EXPIRY_ENABLED=false; that is what the switch is for.
         if v < 1:
             raise ValueError(f"{info.field_name} must be >= 1 (got {v})")
         return v

@@ -15,6 +15,7 @@ from app.routers.internal.security import router as security_router
 from app.routers.internal.corpus import router as corpus_router
 from app.routers.internal.admin_metrics import router as admin_metrics_router
 from app.routers.internal.admin_corpus import router as admin_corpus_router
+from app.routers.internal.admin_flag_events import router as admin_flag_events_router
 from app.routers.internal.admin_flags import router as admin_flags_router
 from app.routers.internal.admin_cost import router as admin_cost_router
 from app.routers.internal.admin_beta_users import router as admin_beta_users_router
@@ -45,7 +46,11 @@ from app.services.moderation_timeout import (
     start_moderation_timeout_worker,
     stop_moderation_timeout_worker,
 )
-from app.services.post_expiry import start_post_expiry_worker, stop_post_expiry_worker
+from app.services.post_expiry import (
+    parse_ttl_overrides,
+    start_post_expiry_worker,
+    stop_post_expiry_worker,
+)
 from app.services.system_metrics import (
     start_system_metrics_worker,
     stop_system_metrics_worker,
@@ -62,6 +67,7 @@ async def lifespan(app: FastAPI):
     # instead of being discovered on the first post.
     build_policy(settings)
     parse_rate_limit_tiers(settings.rate_limit_tiers)
+    parse_ttl_overrides(settings.post_expiry_ttl_overrides)
     pool = await init_pool()
 
     # Sync runtime flags from DB so restarts honour any flags set while the app was running
@@ -78,7 +84,11 @@ async def lifespan(app: FastAPI):
     await start_corpus_promote_worker(pool, interval=settings.corpus_promote_interval)
     await start_circuit_breaker_worker(pool, interval=settings.circuit_breaker_check_interval)
     await start_post_expiry_worker(
-        pool, interval=settings.post_expiry_interval, ttl_days=settings.post_expiry_ttl_days
+        pool,
+        interval=settings.post_expiry_interval,
+        ttl_days=settings.post_expiry_ttl_days,
+        enabled=settings.post_expiry_enabled,
+        overrides=parse_ttl_overrides(settings.post_expiry_ttl_overrides),
     )
     await start_moderation_timeout_worker(
         pool,
@@ -139,6 +149,7 @@ app.include_router(corpus_router)
 app.include_router(admin_metrics_router)
 app.include_router(admin_flags_router)
 app.include_router(admin_corpus_router)
+app.include_router(admin_flag_events_router)
 app.include_router(admin_cost_router)
 app.include_router(admin_beta_users_router)
 app.include_router(rules_router)

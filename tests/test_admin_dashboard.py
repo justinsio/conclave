@@ -59,7 +59,10 @@ async def test_system_health_shape(client):
     }
     assert set(data["workers"].keys()) == expected_workers
     for status in data["workers"].values():
-        assert status in ("running", "stopped")
+        assert status in ("running", "stopped", "disabled")
+    # post_expiry ships OFF by default, so it must report the third state and
+    # not "stopped" - which an operator reads as a failed worker.
+    assert data["workers"]["post_expiry"] == "disabled"
 
 
 async def test_system_health_history(client, db_pool):
