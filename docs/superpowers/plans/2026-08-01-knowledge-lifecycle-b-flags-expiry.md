@@ -12,6 +12,28 @@
 
 ---
 
+## Revision 2 — 2026-08-01, after a cold adversarial audit
+
+Rev 1 was written **before either 2.7a or 2.8 was built**; both are now merged. A fresh read-only agent audited it against the real code and returned *EXECUTE AFTER FIXES*. Baseline confirmed at **534 passed** (`master` @ `6891215`).
+
+✅ **The load-bearing structural claims all held** and were re-verified: the **"no migration" claim is TRUE** (`019` creates both flag tables with exactly the columns, unique constraints and cascades this plan assumes); the `invalidated_by` values `flag_threshold` / `propagation` are **legal under 019's CHECK** (live-tested, `bogus` raises); **no route collides** (the `/internal/admin/flags` → `flag-events` rename is complete); all proposed SQL executes; and `tests/test_post_expiry.py`'s 11 tests survive the `run_expiry` rewrite.
+
+| # | Sev | Fixed in rev 2 |
+|---|---|---|
+| 1 | 🔴 | **The plan committed a false sentence into the README** — *"The migration recovers what it can from staging."* Migration `019` says **NO BACKFILL** in capitals. It told an operator that pre-2.7a history is protected from a hard delete they are about to enable. It is not. |
+| 2 | 🔴 | **`tests/test_admin_dashboard.py:62` asserts `status in ("running","stopped")`** and the new `disabled` state breaks it. Task 8 said "Expected: PASS." |
+| 3 | 🔴 | **The admin auth test asserted 401/403; it is 422** for a missing header. Third plan in a row. Split into 422 + a wrong-key 403. |
+| 4 | 🟠 | 🔑 **`disabled` never reached the surface it was invented for.** `conclave-dashboard/pages/5_System_Health.py:57` is a **binary ternary** — anything not `"running"` renders `✗ stopped`, so every healthy deployment would show a red ✗, the exact outcome this change exists to prevent. Rev 1 listed no dashboard change. |
+| 5 | 🟠 | 🔑 **2.8 opened a dead end this plan left open.** `/v1/knowledge` lets ANY authenticated agent retrieve corpus entries and returns each `id` *specifically so a bad one can be reported* — but rev 1's corpus flag was `require_seed_agent`, and `/v1/knowledge` does not return `source_answer_id`, so the answer-flag surface is no substitute. **Corpus flag moved to `require_agent`**; the distinct-agent threshold and the one-flag-per-agent DB constraint are already the abuse control. |
+| 6 | 🟠 | **The answer-flag endpoint skipped two guards `get_answer` enforces** (`app/routers/v1/answers.py`): private-post visibility and `suppressed`. That made it an existence oracle for answers on private posts, and let an agent with no read access suppress them from corpus ingest at threshold (`corpus_pipeline.py` reads `a.flagged = FALSE`). |
+| 7 | 🟠 | **The `0` check was in the wrong layer.** `app/config.py:137` already has `_reject_zero`, whose own comment names `POST_EXPIRY_TTL_DAYS=0` as the canonical example — and `tests/conftest.py` uses `ASGITransport`, which **never runs lifespan**, so a lifespan-time validator would have been completely untested. |
+| 8 | 🟠 | **No test proved the ENABLED path works.** The only expiry test set `enabled=False`, which is the new default, so an inverted condition would pass every test and silently kill expiry for everyone who turns it on. |
+| 9 | 🟡 | `admin_metrics` snippet dropped `not task.done()` (a crashed worker would report `running`) and needed a `settings` import it never mentioned; the category drift-guard covered 2 of 3 definitions (`app/models.py` also holds the closed set); `rag_flag_count` and the threshold count disagree on author self-flags; README insertion point predates 2.8's section; a dead `name` parameter; "corpus list filters by flag count only" was false in **3** places. |
+
+⚠️ **Still unaudited:** this revision itself.
+
+---
+
 ## Scope: this is plan B of two
 
 **In this plan:** spec §3 (two flag surfaces, threshold, propagation, `GET /internal/admin/flag-events`) and §3b (post expiry rework).
@@ -30,7 +52,7 @@
 cd /f/ObsidianAI/conclave && PYTHONPATH=. .venv/Scripts/python.exe -m pytest
 ```
 
-**Baseline:** whatever 2.7a finished at. Record it. If the tree is red, stop and report.
+**Baseline:** **534 passed** on `master` at merge `6891215` (2.7a AND 2.8 both merged). Record what you observe. If the tree is red, stop and report.
 
 **Conventions:**
 - DB-touching test modules put `pytestmark = pytest.mark.usefixtures("clean_db")` at module level.
@@ -587,7 +609,7 @@ class CorpusFlagRequest(BaseModel):
 async def flag_corpus_entry(
     corpus_id: UUID,
     body: CorpusFlagRequest,
-    agent: dict = Depends(require_seed_agent),
+    agent: dict = Depends(require_agent),
     pool: asyncpg.Pool = Depends(get_pool),
 ):
     """Flag a corpus entry as wrong. rag_flag_count is a maintained stored
@@ -788,7 +810,7 @@ rather than an error — most answers never reach the corpus."
 - Modify: `app/main.py`
 - Test: append to `tests/test_corpus_flags.py`
 
-> Without this there is no way to see a flagging campaign — the corpus list filters by flag *count* only, and dashboard work is deferred to Phase 3.5, so this endpoint is the only visibility this phase ships.
+> Without this there is no way to see a flagging campaign. **`list_corpus` (`app/routers/internal/admin_corpus.py`) filters by `category` and `invalidated` only — it has no flag filter at all**; `rag_flag_count` is merely a returned column. (Rev 1 said it "filters by flag count only", which is false — the real situation is worse.) Dashboard work is deferred to Phase 3.5, so this endpoint is the only per-flag visibility this phase ships.
 
 > 🔴 **Do NOT name this `/internal/admin/flags`. Rev 2 renamed it away from a live collision.**
 > `app/routers/internal/admin_flags.py:12` already owns `APIRouter(prefix="/internal/admin/flags")` and serves `@router.get("")` (`:19`) returning `{trial_posting_blocked}` — the platform kill-switch, registered at `app/main.py:138` and consumed by the operator dashboard at three call sites (`conclave-dashboard/api_client.py:121, :125, :129`).
@@ -831,7 +853,16 @@ async def test_admin_can_list_flags_with_flagger_and_reason(client, db_pool, see
 
 async def test_flags_list_requires_admin(client):
     r = await client.get("/internal/admin/flag-events")
-    assert r.status_code in (401, 403)
+    assert r.status_code == 422   # missing header: rejected before the dependency runs
+
+
+async def test_flags_list_rejects_a_wrong_admin_key(client):
+    """The door that actually proves auth."""
+    r = await client.get(
+        "/internal/admin/flag-events",
+        headers={"Authorization": "Admin wrong-key"},
+    )
+    assert r.status_code == 403
 ```
 
 - [ ] **Step 2: Run to verify it fails**
@@ -849,7 +880,8 @@ Create `app/routers/internal/admin_flag_events.py`:
 ```python
 """Operator visibility into flagging.
 
-The corpus list filters by flag COUNT only, so without this endpoint a flagging
+list_corpus has no flag filter at all - rag_flag_count is only a returned
+    column - so without this endpoint a flagging
 campaign — one agent methodically flagging a rival's answers — is invisible.
 Dashboard work is Phase 3.5; this is the only visibility 2.7b ships.
 """
@@ -931,7 +963,8 @@ Expected: PASS.
 git add app/routers/internal/admin_flag_events.py app/main.py tests/test_corpus_flags.py
 git commit -m "feat: GET /internal/admin/flag-events for operator visibility
 
-The corpus list filters by flag count only, so a flagging campaign was
+list_corpus has no flag filter at all (rag_flag_count is only a returned
+column), so a flagging campaign was
 invisible. Dashboard work is Phase 3.5; this is the visibility 2.7b ships."
 ```
 
@@ -1549,10 +1582,13 @@ no archive and no undo. On a team knowledge network the resolved question is
 usually the artifact worth keeping, which is why this ships disabled.
 
 Posts that produced a corpus entry are exempt, protecting provenance. That
-exemption keys on a column added in this release, so **corpus entries created
+exemption keys on a column added by Phase 2.7a's migration 019 (this phase adds
+no migration), so **corpus entries created
 before it — and any created with `CORPUS_ANONYMIZE=true` — do not protect their
-source posts.** The migration recovers what it can from staging; older links are
-unrecoverable.
+source posts.** **No backfill is possible** - see the NO BACKFILL note in migration 019.
+run_promote nulls corpus_staging's source FKs in the same transaction that
+creates the corpus row, so pre-2.7a entries have no recoverable link and their
+source posts are NOT protected from expiry.
 
 `POST_EXPIRY_TTL_DAYS=0` is rejected at boot rather than interpreted, because it
 would mean "delete everything closed more than 0 days ago." Per-category
