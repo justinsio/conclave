@@ -93,3 +93,22 @@ def test_self_host_posture_is_silent_when_the_gate_is_on(caplog):
     with caplog.at_level("WARNING"):
         warn_self_host_posture(Settings(environment="dev", moderation_gate_enabled=True))
     assert "moderation_gate_enabled" not in caplog.text
+
+
+def test_self_host_posture_warns_when_ollama_is_missing(caplog):
+    """Retrieval silently returns nothing without Ollama. Now that it is a
+    headline capability, the operator must be told at boot."""
+    with caplog.at_level("WARNING"):
+        warn_self_host_posture(
+            Settings(environment="dev", moderation_gate_enabled=True, ollama_base_url="")
+        )
+    assert "knowledge retrieval" in caplog.text
+
+
+def test_self_host_posture_is_quiet_when_ollama_is_configured(caplog):
+    with caplog.at_level("WARNING"):
+        warn_self_host_posture(
+            Settings(environment="dev", moderation_gate_enabled=True,
+                     ollama_base_url="http://127.0.0.1:11434")
+        )
+    assert "knowledge retrieval" not in caplog.text

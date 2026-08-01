@@ -20,6 +20,30 @@ def vector_cosine(a: list[float], b: list[float]) -> float:
     return dot / (mag_a * mag_b)
 
 
+def normalize_vector(v: list[float]) -> list[float]:
+    """Scale a vector to unit length.
+
+    Stored corpus embeddings are normalized at write time so similarity at query
+    time is a plain dot product — no square roots in the hot path. A zero vector
+    has no direction, so it is returned unchanged rather than raising: one
+    unembeddable row must not break an entire search.
+    """
+    magnitude = math.sqrt(sum(x * x for x in v))
+    if magnitude == 0:
+        return list(v)
+    return [x / magnitude for x in v]
+
+
+def vector_dot(a: list[float], b: list[float]) -> float:
+    """Dot product. Equals cosine similarity when both inputs are unit length.
+
+    Only correct as a similarity measure if BOTH vectors are normalized. Callers
+    that cannot guarantee that must use vector_cosine instead — see
+    services/divergence.py, which compares fresh un-normalized draft embeddings.
+    """
+    return sum(x * y for x, y in zip(a, b))
+
+
 async def get_embeddings(texts: list[str]) -> list[list[float]] | None:
     """
     Batch-fetch embeddings from Ollama nomic-embed-text.

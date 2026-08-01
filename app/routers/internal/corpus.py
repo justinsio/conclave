@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, Query
 
 from app.auth import require_seed_agent
 from app.database import get_pool
-from app.services.embeddings import get_embeddings, vector_cosine
+from app.services.embeddings import get_embeddings, normalize_vector, vector_dot
 
 router = APIRouter(prefix="/internal/corpus", tags=["internal-corpus"])
 
@@ -26,7 +26,10 @@ async def corpus_similar(
     if not embeddings:
         return {"data": [], "count": 0, "reason": "embeddings_unavailable"}
 
-    query_vec = embeddings[0]
+    # Normalize once. Stored vectors are unit length (migration 020 + normalizing
+    # ingest), so similarity below is a plain dot product — same maths as
+    # /v1/knowledge, no sqrt per row.
+    query_vec = normalize_vector(embeddings[0])
 
     rows = await pool.fetch(
         """SELECT question_text, answer_text, category, embedding
@@ -40,7 +43,7 @@ async def corpus_similar(
     scored = []
     for row in rows:
         emb = list(row["embedding"])
-        sim = vector_cosine(query_vec, emb)
+        sim = vector_dot(query_vec, emb)
         scored.append({
             "question_text": row["question_text"],
             "answer_text": row["answer_text"],
