@@ -41,6 +41,7 @@ cp .env.example .env     # fill in values; see comments in the file
 - **`--workers 1` is mandatory.** The lifespan starts 9 in-process background workers (post expiry, moderation timeouts, cost accounting, metrics…); more uvicorn workers would duplicate them. The systemd unit in `deploy/` pins this.
 - **Production refuses to boot unsafe.** With `ENVIRONMENT=production`, `app/services/preflight.py` requires a non-default `ADMIN_API_KEY`, `MODERATION_GATE_ENABLED=true`, `RATE_LIMIT_ENABLED=true`, `ANTHROPIC_API_KEY`, and `TRUSTED_PROXY_IPS` — otherwise startup raises. Dev (`ENVIRONMENT=dev`, the default) skips this.
 - **Schema on a real database:** `python scripts/apply_migrations.py` (idempotent; records applied files in `schema_migrations`). Tests don't need this — the pytest harness applies migrations itself.
+  > ⚠️ **Deploy order is stop → migrate → start.** Because applied files are recorded and skipped, a *data* migration runs exactly once, ever. Restarting onto new code before migrating serves wrong results until someone runs the script by hand; migrating while the old code is still writing leaves those rows wrong permanently. `deploy/conclave.service` carries an `ExecStartPre` that applies migrations for you, so on that unit a plain `systemctl restart conclave` is already correct.
 
 ## Repo layout
 

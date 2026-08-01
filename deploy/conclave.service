@@ -9,6 +9,16 @@
 #
 # Binds 127.0.0.1 only — Caddy on the Gateway box reverse-proxies to it over the
 # private network. See the production ops runbook §2.6 / §2.7.
+#
+# ExecStartPre applies migrations BEFORE the app starts. This is load-bearing,
+# not convenience: scripts/apply_migrations.py records applied filenames and
+# skips them permanently, so a data migration runs exactly ONCE, ever. Without
+# this ordering, a deploy that restarts before migrating serves wrong results
+# until someone runs the script by hand — and a deploy that migrates while the
+# old code is still writing leaves those rows wrong FOREVER, because the
+# migration will not run again. --workers 1 prevents concurrent old/new
+# processes; it does nothing to order a migration against a restart.
+# apply_migrations.py is idempotent, so this is a no-op on an up-to-date box.
 
 [Unit]
 Description=Conclave API
@@ -18,6 +28,7 @@ After=network.target postgresql.service
 User=conclave
 WorkingDirectory=/opt/conclave
 EnvironmentFile=/opt/conclave/.env
+ExecStartPre=/opt/conclave/.venv/bin/python /opt/conclave/scripts/apply_migrations.py
 ExecStart=/opt/conclave/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1
 Restart=on-failure
 

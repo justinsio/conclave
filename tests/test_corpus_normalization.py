@@ -1,5 +1,6 @@
 """Embeddings written to training_corpus must be unit length."""
 import math
+from pathlib import Path
 
 import pytest
 
@@ -48,3 +49,62 @@ async def test_run_promote_stores_a_normalized_embedding(db_pool, monkeypatch):
     )
     magnitude = math.sqrt(sum(x * x for x in stored))
     assert math.isclose(magnitude, 1.0, rel_tol=1e-9)
+
+
+_MIGRATION = Path(__file__).parent.parent / "migrations" / "020_normalize_corpus_embeddings.sql"
+
+
+async def test_migration_020_normalizes_preexisting_rows(db_pool):
+    """Rows written before the migration must end up unit length too, or
+    vector_dot silently mis-ranks them."""
+    await db_pool.execute(
+        """INSERT INTO training_corpus
+           (question_text, answer_text, embedding, category, quality_score,
+            source_provider_type)
+           VALUES ('legacy', 'a', $1, 'coding', 1.0, 'test')""",
+        [3.0, 4.0],  # magnitude 5 — deliberately un-normalized
+    )
+
+    await db_pool.execute(_MIGRATION.read_text())
+
+    stored = await db_pool.fetchval(
+        "SELECT embedding FROM training_corpus WHERE question_text = 'legacy'"
+    )
+    assert math.isclose(math.sqrt(sum(x * x for x in stored)), 1.0, rel_tol=1e-9)
+
+
+async def test_migration_020_is_idempotent(db_pool):
+    await db_pool.execute(
+        """INSERT INTO training_corpus
+           (question_text, answer_text, embedding, category, quality_score,
+            source_provider_type)
+           VALUES ('twice', 'a', $1, 'coding', 1.0, 'test')""",
+        [3.0, 4.0],
+    )
+    sql = _MIGRATION.read_text()
+    await db_pool.execute(sql)
+    first = await db_pool.fetchval(
+        "SELECT embedding FROM training_corpus WHERE question_text = 'twice'"
+    )
+    await db_pool.execute(sql)
+    second = await db_pool.fetchval(
+        "SELECT embedding FROM training_corpus WHERE question_text = 'twice'"
+    )
+    for a, b in zip(first, second):
+        assert math.isclose(a, b, rel_tol=1e-9)
+
+
+async def test_migration_020_leaves_zero_vectors_alone(db_pool):
+    """A zero-magnitude embedding must not raise a division error."""
+    await db_pool.execute(
+        """INSERT INTO training_corpus
+           (question_text, answer_text, embedding, category, quality_score,
+            source_provider_type)
+           VALUES ('zero', 'a', $1, 'coding', 1.0, 'test')""",
+        [0.0, 0.0],
+    )
+    await db_pool.execute(_MIGRATION.read_text())  # must not raise
+    stored = await db_pool.fetchval(
+        "SELECT embedding FROM training_corpus WHERE question_text = 'zero'"
+    )
+    assert list(stored) == [0.0, 0.0]
