@@ -20,6 +20,7 @@ import app.services.corpus_pipeline as corpus_pipeline
 import app.services.post_expiry as post_expiry
 import app.services.system_metrics as system_metrics
 from app.auth import require_admin
+from app.config import settings
 from app.database import get_pool
 from app.services.system_metrics import DISK_PATH
 
@@ -50,10 +51,18 @@ def _worker_statuses() -> dict[str, str]:
         "post_expiry": post_expiry._worker_task,
         "system_metrics": system_metrics._worker_task,
     }
-    return {
+    statuses = {
         name: "running" if task is not None and not task.done() else "stopped"
         for name, task in tasks.items()
     }
+    # "stopped" means "should be running and isn't" — an operator sees a red ✗.
+    # Expiry is OFF by default, so without this every healthy deployment would
+    # report a failure. Applied as an override so the `not task.done()` liveness
+    # check above is preserved: a crashed expiry worker on an enabled
+    # deployment must still read "stopped", not "disabled".
+    if not settings.post_expiry_enabled:
+        statuses["post_expiry"] = "disabled"
+    return statuses
 
 
 def _parse_range_days(range_str: str, default: int = 30) -> int:
