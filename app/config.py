@@ -12,6 +12,12 @@ class Settings(BaseSettings):
     corpus_quarantine_days: int = 7
     corpus_ingest_interval: int = 60
     corpus_promote_interval: int = 3600
+    # Anonymization was built for a PUBLIC multi-tenant fine-tuning corpus. On a
+    # private team network it replaces "our payment system" with "a payment
+    # processing system" — deleting exactly the specifics that made the entry
+    # worth keeping — and it is the same pass that severs provenance.
+    # Set true to retain the GDPR-exempt posture for local distillation.
+    corpus_anonymize: bool = False
     circuit_breaker_check_interval: int = 300
     post_expiry_interval: int = 3600
     post_expiry_ttl_days: int = 90

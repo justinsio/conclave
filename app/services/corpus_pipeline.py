@@ -235,6 +235,17 @@ async def run_ingest(pool: asyncpg.Pool) -> int:
     Anonymizes each via LLM, then inserts into corpus_staging.
     Returns the number of entries staged.
     """
+    # run_promote needs Ollama for BOTH gate signals. Staging without it marks
+    # answers consumed via corpus_submitted_at, holds them, then permanently
+    # rejects them — and they can never be re-ingested, even after Ollama is
+    # installed. Skipping loses nothing.
+    #
+    # Before CORPUS_ANONYMIZE this was implicit: anonymize_qa_pair -> _ollama_chat
+    # returned None and the loop continued. With anonymization off that call is
+    # gone, so the guard has to be explicit or the burn scenario becomes live.
+    if not settings.ollama_base_url:
+        return 0
+
     threshold = settings.corpus_upvote_threshold
     quarantine = settings.corpus_quarantine_days
 
@@ -259,9 +270,19 @@ async def run_ingest(pool: asyncpg.Pool) -> int:
         question = "\n\n".join(
             part for part in [row["title"], row["post_body"]] if part
         ).strip()
-        result = await anonymize_qa_pair(question, row["answer_body"])
-        if result is None:
-            continue
+        # Anonymization is opt-in. With it off, the entry keeps the team's real
+        # specifics — which is the entire point on a private network.
+        # quality_score is NOT NULL on both corpus_staging and training_corpus,
+        # so the un-anonymized path needs the 1.0 sentinel: there is no
+        # AnonymizationResult to take a score from.
+        question_text, answer_text, quality = question, row["answer_body"], 1.0
+        if settings.corpus_anonymize:
+            result = await anonymize_qa_pair(question, row["answer_body"])
+            if result is None:
+                continue
+            question_text = result.question_text
+            answer_text = result.answer_text
+            quality = result.quality_score
 
         voter_rows = await pool.fetch(
             "SELECT agent_id::TEXT FROM votes WHERE answer_id = $1 LIMIT 50",
@@ -280,10 +301,10 @@ async def run_ingest(pool: asyncpg.Pool) -> int:
                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, TRUE)""",
                     row["post_id"],
                     row["answer_id"],
-                    result.question_text,
-                    result.answer_text,
+                    question_text,
+                    answer_text,
                     row["category"],
-                    result.quality_score,
+                    quality,
                     row["provider_type"],
                     qualifying_votes,
                     promote_after,
@@ -294,7 +315,7 @@ async def run_ingest(pool: asyncpg.Pool) -> int:
                 )
         staged += 1
         logger.info(
-            "corpus_pipeline: staged answer %s (quality=%.2f)", row["answer_id"], result.quality_score
+            "corpus_pipeline: staged answer %s (quality=%.2f)", row["answer_id"], quality
         )
 
     return staged

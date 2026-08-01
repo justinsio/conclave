@@ -1,7 +1,11 @@
-"""run_promote must carry provenance from staging into training_corpus."""
+"""run_promote must carry provenance from staging into training_corpus,
+and CORPUS_ANONYMIZE must decide whether ingest anonymizes at all."""
+from unittest.mock import AsyncMock, patch
+
 import pytest
 
 from app.services import corpus_pipeline
+from app.services.corpus_pipeline import AnonymizationResult
 
 pytestmark = pytest.mark.usefixtures("clean_db")
 
@@ -69,3 +73,85 @@ async def test_promote_tolerates_missing_provenance(db_pool, monkeypatch):
     )
     assert row["source_post_id"] is None
     assert row["source_agent_id"] is None
+
+
+# ─── CORPUS_ANONYMIZE ─────────────────────────────────────────────────────────
+
+
+async def test_ingest_keeps_raw_text_when_anonymize_disabled(
+    db_pool, seed_agent, test_post, monkeypatch
+):
+    """CORPUS_ANONYMIZE=false stages the team's real text and never calls the
+    anonymizer at all. Also pins the quality_score sentinel — the column is
+    NOT NULL on both staging and training_corpus, and with anonymization off
+    there is no AnonymizationResult to take a score from."""
+    from tests.conftest import _make_answer
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "corpus_anonymize", False)
+    monkeypatch.setattr(settings, "ollama_base_url", "http://fake")
+    await _make_answer(db_pool, test_post["id"], seed_agent["id"], upvote_count=5)
+
+    async def _boom(*a, **kw):
+        raise AssertionError("anonymize_qa_pair must not be called when disabled")
+
+    monkeypatch.setattr(corpus_pipeline, "anonymize_qa_pair", _boom)
+
+    count = await corpus_pipeline.run_ingest(db_pool)
+    assert count == 1
+
+    row = await db_pool.fetchrow(
+        "SELECT question_text, answer_text, quality_score FROM corpus_staging"
+    )
+    title = await db_pool.fetchval(
+        "SELECT title FROM posts WHERE id = $1", test_post["id"]
+    )
+    assert title in row["question_text"]
+    assert row["quality_score"] == pytest.approx(1.0)
+
+
+async def test_ingest_anonymizes_when_enabled(
+    db_pool, seed_agent, test_post, monkeypatch
+):
+    """CORPUS_ANONYMIZE=true keeps the old behaviour end to end: the
+    anonymizer's text AND its quality_score are what get staged."""
+    from tests.conftest import _make_answer
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "corpus_anonymize", True)
+    monkeypatch.setattr(settings, "ollama_base_url", "http://fake")
+    await _make_answer(db_pool, test_post["id"], seed_agent["id"], upvote_count=5)
+
+    mock_result = AnonymizationResult(
+        question_text="generic q", answer_text="generic a", quality_score=0.77
+    )
+    with patch(
+        "app.services.corpus_pipeline.anonymize_qa_pair",
+        new=AsyncMock(return_value=mock_result),
+    ):
+        count = await corpus_pipeline.run_ingest(db_pool)
+
+    assert count == 1
+    row = await db_pool.fetchrow(
+        "SELECT question_text, answer_text, quality_score FROM corpus_staging"
+    )
+    assert row["question_text"] == "generic q"
+    assert row["answer_text"] == "generic a"
+    assert row["quality_score"] == pytest.approx(0.77)
+
+
+async def test_ingest_still_skips_entirely_without_ollama(monkeypatch):
+    """Regression guard for spec §1: with anonymization off but no Ollama,
+    ingest must still skip. run_promote needs Ollama for BOTH signals, so
+    staging would mark answers consumed, hold them, then permanently reject
+    them — unrecoverable even after Ollama is installed later."""
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "corpus_anonymize", False)
+    monkeypatch.setattr(settings, "ollama_base_url", "")
+
+    class _Boom:
+        async def fetch(self, *a, **kw):
+            raise AssertionError("run_ingest must not query when Ollama is absent")
+
+    assert await corpus_pipeline.run_ingest(_Boom()) == 0

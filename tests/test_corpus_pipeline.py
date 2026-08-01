@@ -17,6 +17,27 @@ from app.services.corpus_pipeline import (
 pytestmark = pytest.mark.usefixtures("clean_db")
 
 
+def _reach_the_ingest_query(monkeypatch):
+    """Let run_ingest past its Ollama guard.
+
+    settings.ollama_base_url is '' in the test process, so run_ingest returns 0
+    before touching the database. Any test asserting `count == 0` would then
+    pass regardless of the filter it means to exercise — green, and covering
+    nothing. Anonymization stays off (the default), so no LLM call happens.
+    """
+    from app.config import settings
+    monkeypatch.setattr(settings, "ollama_base_url", "http://fake")
+
+
+def _enable_anonymized_ingest(monkeypatch):
+    """For tests that assert on the anonymizer's output: clear the Ollama guard
+    AND turn CORPUS_ANONYMIZE on, since it now defaults off and the mocked
+    anonymize_qa_pair would otherwise never be consulted."""
+    from app.config import settings
+    monkeypatch.setattr(settings, "ollama_base_url", "http://fake")
+    monkeypatch.setattr(settings, "corpus_anonymize", True)
+
+
 # ─── _promotion_decision (pure) ───────────────────────────────────────────────
 
 class TestPromotionDecision:
@@ -107,9 +128,10 @@ async def test_ingest_skips_when_ollama_unavailable(db_pool, seed_agent, test_po
     assert staging_count == 0
 
 
-async def test_ingest_stages_eligible_answer(db_pool, seed_agent, test_post):
+async def test_ingest_stages_eligible_answer(db_pool, seed_agent, test_post, monkeypatch):
     """Eligible answer with mocked anonymize → creates corpus_staging entry."""
     from tests.conftest import _make_answer
+    _enable_anonymized_ingest(monkeypatch)
     await _make_answer(db_pool, test_post["id"], seed_agent["id"], upvote_count=5)
 
     mock_result = AnonymizationResult(
@@ -133,9 +155,10 @@ async def test_ingest_stages_eligible_answer(db_pool, seed_agent, test_post):
     assert row["ring_check_clean"] is True
 
 
-async def test_ingest_marks_answer_submitted(db_pool, seed_agent, test_post):
+async def test_ingest_marks_answer_submitted(db_pool, seed_agent, test_post, monkeypatch):
     """After staging, answers.corpus_submitted_at is set — won't be re-ingested."""
     from tests.conftest import _make_answer
+    _enable_anonymized_ingest(monkeypatch)
     answer = await _make_answer(db_pool, test_post["id"], seed_agent["id"], upvote_count=5)
 
     mock_result = AnonymizationResult("Q?", "A.", 0.85)
@@ -151,9 +174,10 @@ async def test_ingest_marks_answer_submitted(db_pool, seed_agent, test_post):
     assert row["corpus_submitted_at"] is not None
 
 
-async def test_ingest_idempotent(db_pool, seed_agent, test_post):
+async def test_ingest_idempotent(db_pool, seed_agent, test_post, monkeypatch):
     """Running ingest twice on the same answer doesn't create duplicate entries."""
     from tests.conftest import _make_answer
+    _enable_anonymized_ingest(monkeypatch)
     await _make_answer(db_pool, test_post["id"], seed_agent["id"], upvote_count=5)
 
     mock_result = AnonymizationResult("Q?", "A.", 0.85)
@@ -168,8 +192,12 @@ async def test_ingest_idempotent(db_pool, seed_agent, test_post):
     assert total == 1
 
 
-async def test_ingest_skips_private_posts(db_pool, seed_agent):
+async def test_ingest_skips_private_posts(db_pool, seed_agent, monkeypatch):
     from tests.conftest import _make_post, _make_answer
+    # Without ollama_base_url set, run_ingest returns 0 before reaching the
+    # query and this test passes for the wrong reason — the private-post filter
+    # would lose all coverage while staying green.
+    _reach_the_ingest_query(monkeypatch)
     private_post = await _make_post(db_pool, seed_agent["id"])
     await db_pool.execute(
         "UPDATE posts SET visibility = 'private' WHERE id = $1", private_post["id"]
@@ -186,9 +214,12 @@ async def test_ingest_skips_private_posts(db_pool, seed_agent):
     assert count == 0
 
 
-async def test_ingest_skips_below_threshold(db_pool, seed_agent, test_post):
+async def test_ingest_skips_below_threshold(db_pool, seed_agent, test_post, monkeypatch):
     """Answers with fewer upvotes than the threshold are not staged."""
     from tests.conftest import _make_answer
+    # See test_ingest_skips_private_posts: without this the threshold filter
+    # loses all coverage while the assertion still passes.
+    _reach_the_ingest_query(monkeypatch)
     await _make_answer(db_pool, test_post["id"], seed_agent["id"], upvote_count=1)
 
     mock_result = AnonymizationResult("Q?", "A.", 0.90)
