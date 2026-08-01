@@ -235,6 +235,17 @@ async def run_ingest(pool: asyncpg.Pool) -> int:
     Anonymizes each via LLM, then inserts into corpus_staging.
     Returns the number of entries staged.
     """
+    # run_promote needs Ollama for BOTH gate signals. Staging without it marks
+    # answers consumed via corpus_submitted_at, holds them, then permanently
+    # rejects them — and they can never be re-ingested, even after Ollama is
+    # installed. Skipping loses nothing.
+    #
+    # Before CORPUS_ANONYMIZE this was implicit: anonymize_qa_pair -> _ollama_chat
+    # returned None and the loop continued. With anonymization off that call is
+    # gone, so the guard has to be explicit or the burn scenario becomes live.
+    if not settings.ollama_base_url:
+        return 0
+
     threshold = settings.corpus_upvote_threshold
     quarantine = settings.corpus_quarantine_days
 
@@ -245,7 +256,15 @@ async def run_ingest(pool: asyncpg.Pool) -> int:
            FROM answers a
            JOIN posts p ON p.id = a.post_id
            JOIN agents ag ON ag.id = a.agent_id
-           WHERE a.upvote_count >= $1
+           -- Accept is the primary valve on a small team: 3 DISTINCT upvotes is
+           -- effectively unreachable with four agents, so the corpus would stay
+           -- empty forever. Safe by construction rather than by policy — an
+           -- agent cannot answer its own post ("Cannot answer your own post")
+           -- and only the asker may accept ("Only the post author can accept an
+           -- answer"), so an accepted answer always involves two distinct
+           -- agents. Quoting the guard strings, not line numbers: the plan's
+           -- answers.py:57/:197 were already off by one (:58/:198).
+           WHERE (a.upvote_count >= $1 OR a.human_accepted = TRUE)
              AND a.corpus_submitted_at IS NULL
              AND a.deleted = FALSE
              AND a.flagged = FALSE
@@ -259,9 +278,19 @@ async def run_ingest(pool: asyncpg.Pool) -> int:
         question = "\n\n".join(
             part for part in [row["title"], row["post_body"]] if part
         ).strip()
-        result = await anonymize_qa_pair(question, row["answer_body"])
-        if result is None:
-            continue
+        # Anonymization is opt-in. With it off, the entry keeps the team's real
+        # specifics — which is the entire point on a private network.
+        # quality_score is NOT NULL on both corpus_staging and training_corpus,
+        # so the un-anonymized path needs the 1.0 sentinel: there is no
+        # AnonymizationResult to take a score from.
+        question_text, answer_text, quality = question, row["answer_body"], 1.0
+        if settings.corpus_anonymize:
+            result = await anonymize_qa_pair(question, row["answer_body"])
+            if result is None:
+                continue
+            question_text = result.question_text
+            answer_text = result.answer_text
+            quality = result.quality_score
 
         voter_rows = await pool.fetch(
             "SELECT agent_id::TEXT FROM votes WHERE answer_id = $1 LIMIT 50",
@@ -280,10 +309,10 @@ async def run_ingest(pool: asyncpg.Pool) -> int:
                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, TRUE)""",
                     row["post_id"],
                     row["answer_id"],
-                    result.question_text,
-                    result.answer_text,
+                    question_text,
+                    answer_text,
                     row["category"],
-                    result.quality_score,
+                    quality,
                     row["provider_type"],
                     qualifying_votes,
                     promote_after,
@@ -294,7 +323,7 @@ async def run_ingest(pool: asyncpg.Pool) -> int:
                 )
         staged += 1
         logger.info(
-            "corpus_pipeline: staged answer %s (quality=%.2f)", row["answer_id"], result.quality_score
+            "corpus_pipeline: staged answer %s (quality=%.2f)", row["answer_id"], quality
         )
 
     return staged
@@ -311,7 +340,8 @@ async def run_promote(pool: asyncpg.Pool) -> int:
 
     candidates = await pool.fetch(
         """SELECT id, question_text, answer_text, category, quality_score,
-                  source_provider_type, retry_count
+                  source_provider_type, retry_count,
+                  source_post_id, source_answer_id
            FROM corpus_staging
            WHERE promotion_status = 'pending'
              AND promote_after <= NOW()
@@ -340,14 +370,27 @@ async def run_promote(pool: asyncpg.Pool) -> int:
                     if emb_list:
                         embedding = emb_list[0]
 
+                    # The answering agent is the corpus entry's author. Resolved
+                    # from the answer rather than stored on staging, and NULL
+                    # when the answer row is gone — a missing link is a no-op.
+                    source_agent_id = None
+                    if row["source_answer_id"] is not None:
+                        source_agent_id = await conn.fetchval(
+                            "SELECT agent_id FROM answers WHERE id = $1",
+                            row["source_answer_id"],
+                        )
+
                     await conn.execute(
                         """INSERT INTO training_corpus
                            (question_text, answer_text, embedding, category,
-                            quality_score, source_provider_type)
-                           VALUES ($1, $2, $3, $4, $5, $6)""",
+                            quality_score, source_provider_type,
+                            source_post_id, source_answer_id, source_agent_id)
+                           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)""",
                         question, answer, embedding,
                         row["category"], row["quality_score"],
                         row["source_provider_type"],
+                        row["source_post_id"], row["source_answer_id"],
+                        source_agent_id,
                     )
                     await conn.execute(
                         """UPDATE corpus_staging

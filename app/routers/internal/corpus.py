@@ -32,6 +32,7 @@ async def corpus_similar(
         """SELECT question_text, answer_text, category, embedding
              FROM training_corpus
             WHERE embedding IS NOT NULL
+              AND invalidated_at IS NULL
               AND ($1::text IS NULL OR category = $1)""",
         category,
     )

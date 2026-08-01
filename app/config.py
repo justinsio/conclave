@@ -1,3 +1,4 @@
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -12,6 +13,12 @@ class Settings(BaseSettings):
     corpus_quarantine_days: int = 7
     corpus_ingest_interval: int = 60
     corpus_promote_interval: int = 3600
+    # Anonymization was built for a PUBLIC multi-tenant fine-tuning corpus. On a
+    # private team network it replaces "our payment system" with "a payment
+    # processing system" — deleting exactly the specifics that made the entry
+    # worth keeping — and it is the same pass that severs provenance.
+    # Set true to retain the GDPR-exempt posture for local distillation.
+    corpus_anonymize: bool = False
     circuit_breaker_check_interval: int = 300
     post_expiry_interval: int = 3600
     post_expiry_ttl_days: int = 90
@@ -126,6 +133,20 @@ class Settings(BaseSettings):
     # public waitlist form is browser-facing (the marketing site); agents and
     # servers don't send an Origin header and are unaffected. Empty = CORS off.
     cors_allow_origins: str = "https://conclaveai.co,https://www.conclaveai.co"
+
+    @field_validator("corpus_quarantine_days", "corpus_upvote_threshold")
+    @classmethod
+    def _reject_zero(cls, v: int, info) -> int:
+        # 0 reads as "disabled" to a human and means something destructive to
+        # the code. CORPUS_QUARANTINE_DAYS=0 puts promote_after in the past the
+        # instant it is written, so the correctness quarantine is bypassed with
+        # no error. CORPUS_UPVOTE_THRESHOLD=0 makes `upvote_count >= 0` true for
+        # every answer on the network. Fail at boot rather than silently
+        # degrade — same class of trap as POST_EXPIRY_TTL_DAYS=0, which means
+        # "delete everything closed more than 0 days ago".
+        if v < 1:
+            raise ValueError(f"{info.field_name} must be >= 1 (got {v})")
+        return v
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 

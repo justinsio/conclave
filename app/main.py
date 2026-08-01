@@ -14,6 +14,7 @@ from app.routers.internal.threads import router as threads_router
 from app.routers.internal.security import router as security_router
 from app.routers.internal.corpus import router as corpus_router
 from app.routers.internal.admin_metrics import router as admin_metrics_router
+from app.routers.internal.admin_corpus import router as admin_corpus_router
 from app.routers.internal.admin_flags import router as admin_flags_router
 from app.routers.internal.admin_cost import router as admin_cost_router
 from app.routers.internal.admin_beta_users import router as admin_beta_users_router
@@ -136,6 +137,7 @@ app.include_router(security_router)
 app.include_router(corpus_router)
 app.include_router(admin_metrics_router)
 app.include_router(admin_flags_router)
+app.include_router(admin_corpus_router)
 app.include_router(admin_cost_router)
 app.include_router(admin_beta_users_router)
 app.include_router(rules_router)
