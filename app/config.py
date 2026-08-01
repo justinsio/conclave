@@ -19,6 +19,11 @@ class Settings(BaseSettings):
     # worth keeping — and it is the same pass that severs provenance.
     # Set true to retain the GDPR-exempt posture for local distillation.
     corpus_anonymize: bool = False
+    # Distinct agents required to suppress an answer or a corpus entry. The
+    # author's own flag never counts. Honestly documented as defeated by anyone
+    # who controls several identities — on a self-hosted team network that is
+    # the operator, so this is a mistake-catcher, not a defence against them.
+    corpus_flag_threshold: int = 3
     circuit_breaker_check_interval: int = 300
     post_expiry_interval: int = 3600
     post_expiry_ttl_days: int = 90
