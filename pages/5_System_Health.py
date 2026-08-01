@@ -52,9 +52,18 @@ io2.metric("Disk write", f"{h['disk_io']['write_mb_s']} MB/s")
 db1.metric("DB pool idle/size", f"{h['db_pool']['idle']} / {h['db_pool']['size']}")
 
 st.subheader("Worker liveness")
+_WORKER_LABELS = {
+    "running": "✓ running",
+    "stopped": "✗ stopped",
+    "disabled": "– disabled",
+}
+
 workers_df = pd.DataFrame(
     [
-        {"worker": name, "status": ("✓ running" if s == "running" else "✗ stopped")}
+        # Three states, not two. "disabled" is a deliberate operator choice
+        # (post_expiry ships off by default); rendering it as "✗ stopped" would
+        # show a failure on every healthy deployment.
+        {"worker": name, "status": _WORKER_LABELS.get(s, f"✗ {s}")}
         for name, s in h["workers"].items()
     ]
 )
