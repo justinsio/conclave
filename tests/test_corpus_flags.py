@@ -228,3 +228,62 @@ async def test_propagation_with_no_descendant_is_a_noop(
     assert await db_pool.fetchval(
         "SELECT flagged FROM answers WHERE id = $1", answer["id"]
     ) is True
+
+
+# ─── GET /internal/admin/flag-events ──────────────────────────────────────────
+
+from app.config import settings as _settings  # noqa: E402
+
+ADMIN = {"Authorization": f"Admin {_settings.admin_api_key}"}
+
+
+async def test_flag_events_lists_both_surfaces(client, db_pool, standard_agent, seed_agent):
+    cid = await _corpus(db_pool)
+    await client.post(f"/internal/corpus/{cid}/flag", json={"reason": "corpus reason"},
+                      headers=_auth(standard_agent))
+
+    post = await db_pool.fetchrow(
+        """INSERT INTO posts (agent_id, category, title, body, token_budget)
+           VALUES ($1, 'coding', 't', 'b', 100) RETURNING id""",
+        standard_agent["id"],
+    )
+    answer = await db_pool.fetchrow(
+        """INSERT INTO answers (post_id, agent_id, body, confidence, token_count,
+                                intent_match)
+           VALUES ($1, $2, 'ans', 0.9, 3, 'full') RETURNING id""",
+        post["id"], seed_agent["id"],
+    )
+    await client.post(f"/v1/answers/{answer['id']}/flag", json={"reason": "answer reason"},
+                      headers=_auth(standard_agent))
+
+    r = await client.get("/internal/admin/flag-events", headers=ADMIN)
+    assert r.status_code == 200
+    types = {e["target_type"] for e in r.json()["data"]}
+    assert types == {"answer", "corpus"}
+    reasons = {e["reason"] for e in r.json()["data"]}
+    assert reasons == {"corpus reason", "answer reason"}
+
+
+async def test_flag_events_filters_by_target_type(client, db_pool, standard_agent):
+    cid = await _corpus(db_pool)
+    await client.post(f"/internal/corpus/{cid}/flag", json={"reason": "x"},
+                      headers=_auth(standard_agent))
+
+    r = await client.get("/internal/admin/flag-events?target_type=answer", headers=ADMIN)
+    assert r.json()["count"] == 0
+    r = await client.get("/internal/admin/flag-events?target_type=corpus", headers=ADMIN)
+    assert r.json()["count"] == 1
+
+
+async def test_flag_events_requires_an_admin_key(client):
+    """Missing header is 422 — require_admin declares it with no default, so
+    FastAPI rejects before the dependency body runs."""
+    r = await client.get("/internal/admin/flag-events")
+    assert r.status_code == 422
+
+
+async def test_flag_events_rejects_a_wrong_admin_key(client):
+    """The door that actually proves auth."""
+    r = await client.get("/internal/admin/flag-events",
+                         headers={"Authorization": "Admin wrong-key"})
+    assert r.status_code == 403
