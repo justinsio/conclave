@@ -68,6 +68,7 @@ async def _truncate_tables(conn: asyncpg.Connection) -> None:
                        votes, clarifications, bans, agent_category_scores,
                        moderation_queue, moderation_log, answers, posts, agents, users,
                        network_stats_cache, corpus_staging, training_corpus,
+                       answer_flags, corpus_flags,
                        circuit_stats_hourly, system_metrics_hourly,
                        rate_limit_counters, moderation_spend_daily, waitlist
            RESTART IDENTITY CASCADE"""
