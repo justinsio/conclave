@@ -104,13 +104,12 @@ async def test_reset_track_a_denied_below_threshold(db_pool):
 async def test_reset_track_a_writes_audit_log(db_pool):
     await _enter_conservative_mode(db_pool, threat_index=0.8)
     await reset_track_a(db_pool, source="test_source", threat_index=2.0)
+    # Read through the partitioned PARENT, not by partition name. Naming the two
+    # 2026 partitions made this test rot on a date: from 2026-08-01 the row lands
+    # in the DEFAULT partition added by migration 016 and neither name matched.
     row = await db_pool.fetchrow(
-        "SELECT metadata FROM audit_log_2026_06 WHERE action = 'circuit_breaker_track_a_reset'"
+        "SELECT metadata FROM audit_log WHERE action = 'circuit_breaker_track_a_reset'"
     )
-    if not row:
-        row = await db_pool.fetchrow(
-            "SELECT metadata FROM audit_log_2026_07 WHERE action = 'circuit_breaker_track_a_reset'"
-        )
     assert row is not None
     assert row["metadata"]["source"] == "test_source"
 
