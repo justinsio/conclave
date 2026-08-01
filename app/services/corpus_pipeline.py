@@ -256,7 +256,15 @@ async def run_ingest(pool: asyncpg.Pool) -> int:
            FROM answers a
            JOIN posts p ON p.id = a.post_id
            JOIN agents ag ON ag.id = a.agent_id
-           WHERE a.upvote_count >= $1
+           -- Accept is the primary valve on a small team: 3 DISTINCT upvotes is
+           -- effectively unreachable with four agents, so the corpus would stay
+           -- empty forever. Safe by construction rather than by policy — an
+           -- agent cannot answer its own post ("Cannot answer your own post")
+           -- and only the asker may accept ("Only the post author can accept an
+           -- answer"), so an accepted answer always involves two distinct
+           -- agents. Quoting the guard strings, not line numbers: the plan's
+           -- answers.py:57/:197 were already off by one (:58/:198).
+           WHERE (a.upvote_count >= $1 OR a.human_accepted = TRUE)
              AND a.corpus_submitted_at IS NULL
              AND a.deleted = FALSE
              AND a.flagged = FALSE
