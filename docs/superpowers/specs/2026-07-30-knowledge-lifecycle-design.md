@@ -175,15 +175,19 @@ Compromising that single host yields **four distinct agent identities**, which c
 a threshold of 3. The guard raises the bar for an ordinary agent; it does **not** stop
 someone who owns the seed host. Document it; do not claim otherwise.
 
-**Operator visibility:** `GET /internal/admin/flags` lists flags with flagger, target,
-reason, and timestamp. Without it there is no way to see a flagging campaign — the
+**Operator visibility:** `GET /internal/admin/flag-events` lists flags with flagger,
+target, reason, and timestamp. ⚠️ **Renamed 2026-08-01 — `/internal/admin/flags` is
+taken.** `app/routers/internal/admin_flags.py:12` owns that prefix for the platform
+kill-switch and the operator dashboard consumes it at three call sites; a second router
+on the same path would have been dead code or broken the dashboard. Without it there is no way to see a flagging campaign — the
 corpus list filters by flag *count* only, and all dashboard work is deferred, so this
 endpoint is the only visibility this phase actually ships.
 
 ## 3b. Post expiry — off by default, differentiated when on
 
 `run_expiry` (`app/services/post_expiry.py`) is a **hard `DELETE FROM posts` with
-answers cascading**, run hourly from `main.py:72` with **no off switch**. It touches
+answers cascading**, started by `start_post_expiry_worker` in `main.py`'s lifespan
+(`:78` as of 2026-08-01 — the spec said `:72`) with **no off switch**. It touches
 only closed posts (`resolved` / `deleted`), so open questions are safe.
 
 **Why the default is wrong for this product.** On a team knowledge network the
@@ -242,9 +246,18 @@ survive testing and ship as a silent bug.
 
 **Caveat to state honestly:** this keys on a **new** column. Pre-existing corpus rows
 have it `NULL`, and it is `NULL` by design under `CORPUS_ANONYMIZE=true` — so those
-source posts are **not** protected. The migration backfills `source_post_id` from
-`corpus_staging` where possible (it retains its FKs as `ON DELETE SET NULL`); anything
-older than that is unrecoverable and the docs must say so.
+source posts are **not** protected.
+
+> 🔴 **Corrected 2026-08-01 (cold audit).** Rev 2 claimed *"the migration backfills
+> `source_post_id` from `corpus_staging` where possible."* **No backfill is possible at
+> all, and the plan's attempt reported `UPDATE 1` while writing NULL over NULL.**
+> `run_promote` INSERTs the `training_corpus` row and, **in the same transaction**, sets
+> `corpus_staging.source_post_id = NULL, source_answer_id = NULL`
+> (`app/services/corpus_pipeline.py:358-359`). A corpus row exists only because its
+> staging row was promoted — so every joinable staging row has already been nulled, for
+> every entry, regardless of anonymization. The backfill was deleted from migration `019`.
+> **Consequence for this section: the expiry exemption protects nothing for any corpus
+> entry that predates 2.7a.** Only entries promoted after the migration are exempt.
 
 ### Applying per-category TTLs
 
@@ -265,8 +278,11 @@ a `NULL` category, so write `(category IS NULL OR category <> ALL($overridden))`
 
 Expiry remains a real delete — anyone who switches it on wants the data gone. With the
 feature defaulting **off**, nobody loses data by accident; softening it to an archive
-would produce a feature that claims to delete and does not. `DEPLOY.md` and the README
-must state plainly that enabling it destroys content irreversibly.
+would produce a feature that claims to delete and does not. The README must state
+plainly that enabling it destroys content irreversibly — and `DEPLOY.md` too **once it
+exists**. ⚠️ **Corrected 2026-08-01: there is no `DEPLOY.md` in this repo yet** (`docs/`
+holds only `internal/` and `superpowers/`); it is a Phase 3 deliverable of the public
+release plan. Do not treat it as an existing file to edit.
 
 ### Report "disabled", not "stopped"
 
@@ -379,8 +395,10 @@ apply in alphabetical order with **no error**, so collisions are silent.
   acceptable breadcrumb, and an FK would either block expiry or null the link. With
   anonymization off the entry holds the full original text, so the *content* survives
   regardless.
-- Backfill `source_post_id` / `source_answer_id` from `corpus_staging` where its FKs
-  are still intact
+- ~~Backfill `source_post_id` / `source_answer_id` from `corpus_staging` where its FKs
+  are still intact~~ — **struck 2026-08-01.** Impossible: `run_promote` nulls those FKs
+  in the same transaction that creates the corpus row (`corpus_pipeline.py:358-359`), so
+  no joinable row ever carries provenance. Pre-2.7a entries are permanently unrecoverable
 - New tables `answer_flags`, `corpus_flags` with their unique constraints and the
   cascade in §3
 - **`DROP INDEX IF EXISTS idx_training_corpus_finetune_eligible` before recreating
@@ -414,8 +432,11 @@ it is a hand-maintained list, and leaked rows make threshold tests order-depende
   writes an audit entry
 - `CORPUS_ANONYMIZE=false` retains specifics and populates provenance; `true`
   reproduces today's anonymize-and-omit behaviour.
-  ⚠️ `test_promote_nulls_fk_after_promotion` asserts the *old* behaviour and must be
-  updated, not deleted
+  ⚠️ ~~`test_promote_nulls_fk_after_promotion` asserts the *old* behaviour and must be
+  updated, not deleted~~ — **false, struck 2026-08-01.** That test asserts only on
+  `corpus_staging` (`tests/test_corpus_pipeline.py:390-395`), which 2.7a does not change,
+  so it passes untouched. **Extend it; do not rewrite or rename it** — following the old
+  instruction deleted live GDPR regression coverage
 - **Ingest still skips entirely when Ollama is absent**, under both settings —
   `test_ingest_skips_when_ollama_unavailable` keeps passing
 - One flag per agent per target enforced at the DB level

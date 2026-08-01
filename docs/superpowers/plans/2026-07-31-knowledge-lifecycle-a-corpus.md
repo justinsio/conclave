@@ -12,11 +12,34 @@
 
 ---
 
+## Revision 2 — 2026-08-01, after a cold adversarial audit
+
+Rev 1 was written, self-reviewed, and believed correct by one author. A fresh read-only agent with no session context audited it against the real code and returned **EXECUTE AFTER FIXES**. Every 🔴 below was independently re-verified against source before this revision was written.
+
+| # | Sev | What was wrong in rev 1 |
+|---|---|---|
+| 1 | 🔴 | **Baseline was false.** 479 passed / 1 failed — `test_reset_track_a_writes_audit_log` rotted on 2026-08-01. Task 1 Step 1 says "stop if red", so an executor **halted on the first step**. Fixed on `master` in `a497cb2`. |
+| 2 | 🔴 | **Task 6 Step 4 quoted source that does not exist.** Applying it verbatim raised `NameError` on every ingest tick under the *new default*, swallowed by a bare `except` — corpus never fills, worker looks healthy. Rewritten from `corpus_pipeline.py:262-264`. |
+| 3 | 🔴 | **The `quality_score = 1.0` sentinel was dropped**, and it is `NOT NULL` on both tables. Folded into the Task 6 rewrite. |
+| 4 | 🔴 | **The Ollama guard breaks 5 existing tests; the draft named 1.** Two of the five keep passing *for the wrong reason*, silently losing the private-post and threshold filter coverage. All five now named with the fix. |
+| 5 | 🔴 | **Task 8's missing-key test asserted 401/403; it is 422.** `require_admin` has no header default, so FastAPI rejects before the dependency runs. Both doors now covered. |
+| 6 | 🔴 | **Migration 019's provenance backfill recovered nothing and reported `UPDATE 1`.** `run_promote` nulls the staging FKs in the same transaction as the corpus INSERT, so no joinable row ever has provenance. Backfill deleted; the real limit documented. |
+| 7 | 🟠 | **Task 4 Step 5 was built on a false premise** — the test it described asserts only on `corpus_staging` and passes unchanged. Following it literally deleted live GDPR regression coverage. Now additive. |
+| 8 | 🟠 | **Task 6's only `CORPUS_ANONYMIZE` test was a tautology** — it never called `run_ingest` and passed against a no-op. Replaced with two tests that exercise both settings. |
+| 9 | 🟠 | **`CORPUS_QUARANTINE_DAYS=0` / `CORPUS_UPVOTE_THRESHOLD=0` reopened the zero-value trap** for the third time in this project. Floors now enforced at boot, not in a comment. |
+| 10 | 🟡 | Migration applied only to the test DB; purge tests checked neither cascade nor audit; no CHECK on `invalidated_by`; index comment overstated its own value; `answers.py` citations off by one **inside a committed SQL comment**; README migration range stale. All fixed. |
+
+🔑 **The pattern across all three audits to date: the failures cluster in code quoted from memory rather than opened.** Every snippet in this revision that claims to show existing source was pasted from the file.
+
+⚠️ **Still unaudited:** this revision itself. The changed sections have not been cold-read by anyone.
+
+---
+
 ## Scope: this is plan A of two
 
 **In this plan (2.7a):** spec §1, §2, §3c, §4 (corpus endpoints only), §5.
 
-**In plan 2.7b, NOT here:** spec §3 (the two flag surfaces, threshold logic, propagation, `GET /internal/admin/flags`) and §3b (post expiry rework).
+**In plan 2.7b, NOT here:** spec §3 (the two flag surfaces, threshold logic, propagation, `GET /internal/admin/flag-events`) and §3b (post expiry rework).
 
 The migration here creates `answer_flags` and `corpus_flags` **and nothing reads or writes them until 2.7b.** That is deliberate: one migration for one phase, so 2.7b needs no schema change of its own and cannot collide on a migration number.
 
@@ -30,7 +53,9 @@ The migration here creates `answer_flags` and `corpus_flags` **and nothing reads
 cd /f/ObsidianAI/conclave && PYTHONPATH=. .venv/Scripts/python.exe -m pytest
 ```
 
-**Baseline:** **480 passed** (conclave `master`, 2026-07-31, Phase 2.5 merged). Record what you actually observe; if it differs, stop and report.
+**Baseline:** **480 passed** (conclave `master` at commit `a497cb2`, re-verified 2026-08-01). Record what you actually observe; if it differs, stop and report.
+
+> ⚠️ **Rev 2 — this baseline was briefly false and would have halted an executor at Task 1 Step 1.** On 2026-08-01 the suite reported **479 passed, 1 failed**: `tests/test_circuit_breaker.py::test_reset_track_a_writes_audit_log` queried `audit_log_2026_06` then `audit_log_2026_07` **by partition name**, and from 2026-08-01 the row lands in the DEFAULT partition that migration `016` added. The test rotted on a date, not on a code change. **Fixed in `a497cb2`** by reading through the partitioned parent — the same lesson `tests/conftest.py:75-77` already recorded when `016` landed, at the one call site that was missed. It was the last hardcoded partition reference in test code.
 
 **Conventions:**
 - DB-touching test modules put `pytestmark = pytest.mark.usefixtures("clean_db")` at module level.
@@ -114,6 +139,23 @@ ALTER TABLE training_corpus ADD COLUMN IF NOT EXISTS invalidated_at     TIMESTAM
 ALTER TABLE training_corpus ADD COLUMN IF NOT EXISTS invalidated_reason TEXT;
 ALTER TABLE training_corpus ADD COLUMN IF NOT EXISTS invalidated_by     VARCHAR(20);
 
+-- Spec §5 enumerates exactly three legal writers. corpus_staging sets the
+-- precedent (migration 004:32-35 CHECKs both promotion_status and
+-- critique_verdict). 2.7b writes 'flag_threshold' and 'propagation'; without a
+-- constraint a typo there is silently stored and silently un-queryable.
+-- DO block because ADD CONSTRAINT has no IF NOT EXISTS.
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'training_corpus_invalidated_by_check'
+    ) THEN
+        ALTER TABLE training_corpus
+            ADD CONSTRAINT training_corpus_invalidated_by_check
+            CHECK (invalidated_by IS NULL
+                   OR invalidated_by IN ('operator', 'flag_threshold', 'propagation'));
+    END IF;
+END $$;
+
 -- ── Provenance ───────────────────────────────────────────────────────────────
 -- Deliberately NO foreign keys. Posts expire; an FK would either block that
 -- expiry or null the link out. A dangling UUID is an acceptable breadcrumb, and
@@ -123,20 +165,22 @@ ALTER TABLE training_corpus ADD COLUMN IF NOT EXISTS source_post_id   UUID;
 ALTER TABLE training_corpus ADD COLUMN IF NOT EXISTS source_answer_id UUID;
 ALTER TABLE training_corpus ADD COLUMN IF NOT EXISTS source_agent_id  UUID;
 
--- Backfill provenance from corpus_staging where its own FKs are still intact.
+-- NO BACKFILL. Provenance for pre-2.7a corpus entries is permanently
+-- unrecoverable, and it is worth being exact about why.
 --
--- HONEST LIMIT: the only available join is on the text itself. When an entry was
--- ingested with anonymization ON, training_corpus.question_text differs from the
--- staging text and the join simply will not match. Those rows keep NULL
--- provenance, which the flag-author guard in 2.7b treats as "all flags count".
--- That is stated in the docs rather than papered over.
-UPDATE training_corpus tc
-SET source_post_id   = cs.source_post_id,
-    source_answer_id = cs.source_answer_id
-FROM corpus_staging cs
-WHERE tc.source_post_id IS NULL
-  AND tc.question_text = cs.question_text
-  AND tc.answer_text   = cs.answer_text;
+-- run_promote INSERTs the training_corpus row and, in the SAME transaction, sets
+-- corpus_staging.source_post_id = NULL and source_answer_id = NULL
+-- (corpus_pipeline.py:358-359). A training_corpus row exists only because its
+-- staging row was promoted. Therefore every staging row that could be joined has
+-- already had its provenance nulled — for every corpus entry, always, regardless
+-- of anonymization.
+--
+-- Consequences, stated rather than papered over:
+--   * Pre-2.7a entries keep NULL provenance forever. The 2.7b flag-author guard
+--     treats those as "all flags count".
+--   * The spec §3b expiry exemption ("posts with a corpus descendant never
+--     expire") does not protect the source posts of pre-2.7a entries.
+-- Only entries promoted AFTER this migration carry provenance.
 
 -- ── Flag storage (populated by plan 2.7b; created here so one phase = one migration) ──
 CREATE TABLE IF NOT EXISTS answer_flags (
@@ -168,7 +212,11 @@ CREATE INDEX idx_training_corpus_finetune_eligible
     ON training_corpus (created_at)
     WHERE finetuned_at IS NULL AND rag_flag_count = 0 AND invalidated_at IS NULL;
 
--- Supports the retrieval path's invalidated_at IS NULL filter.
+-- Narrows the retrieval scan to live, embedded rows. Be honest about the size of
+-- that win: corpus.py:31-37 issues an unbounded SELECT with no ORDER BY and no
+-- LIMIT, then scores every row in Python, so the (category) key accelerates
+-- nothing here — only the partial predicate does any work. Kept because 2.8 adds
+-- a category-filtered public retrieval path that will use the key.
 CREATE INDEX IF NOT EXISTS idx_training_corpus_active
     ON training_corpus (category)
     WHERE invalidated_at IS NULL AND embedding IS NOT NULL;
@@ -203,7 +251,36 @@ predicate has invalidated_at: True
 
 If `predicate has invalidated_at` is `False`, the `DROP INDEX` did not take effect — fix it before continuing. That is the exact silent failure the DROP exists to prevent.
 
-- [ ] **Step 3: Commit**
+Also confirm the CHECK constraint landed and actually rejects:
+
+```bash
+cd /f/ObsidianAI/conclave && PYTHONPATH=. .venv/Scripts/python.exe -c "
+import asyncio, asyncpg, os
+from dotenv import load_dotenv; load_dotenv()
+async def main():
+    conn = await asyncpg.connect(os.environ['TEST_DATABASE_URL'])
+    tr = conn.transaction(); await tr.start()
+    await conn.execute(\"INSERT INTO training_corpus (question_text, answer_text, category, quality_score, source_provider_type, invalidated_by) VALUES ('q','a','coding',1.0,'seed','operator')\")
+    print('legal value accepted: True')
+    try:
+        await conn.execute(\"INSERT INTO training_corpus (question_text, answer_text, category, quality_score, source_provider_type, invalidated_by) VALUES ('q','a','coding',1.0,'seed','typo')\")
+        print('ILLEGAL VALUE ACCEPTED — constraint missing')
+    except asyncpg.exceptions.CheckViolationError:
+        print('illegal value rejected: True')
+    await tr.rollback(); await conn.close()
+asyncio.run(main())
+"
+```
+
+- [ ] **Step 3: Apply to the dev database too**
+
+> 🟡 **Rev 2 — the draft only ever touched `TEST_DATABASE_URL`.** `scripts/apply_migrations.py` exists (it tracks applied filenames in `schema_migrations` and wraps each file in a transaction, `:59-65`) and the draft never ran it. Anyone who starts the app locally against `DATABASE_URL` after Task 4 gets `column "source_post_id" of relation "training_corpus" does not exist` from `run_promote`.
+
+```bash
+cd /f/ObsidianAI/conclave && PYTHONPATH=. .venv/Scripts/python.exe scripts/apply_migrations.py
+```
+
+- [ ] **Step 4: Commit**
 
 ```bash
 git add migrations/019_knowledge_lifecycle.sql
@@ -419,16 +496,23 @@ Replace it with:
                     )
 ```
 
-- [ ] **Step 5: Update the test that asserts the OLD behaviour**
+- [ ] **Step 5: EXTEND `test_promote_nulls_fk_after_promotion` — do not rewrite or rename it**
 
-`tests/test_corpus_pipeline.py::test_promote_nulls_fk_after_promotion` asserts that provenance is discarded at promotion. That was the behaviour this task deliberately reverses. **Update it, do not delete it** — it still has a job: proving the *staging* row's FKs behave as expected after promotion.
+> 🟠 **Rev 2 — the draft was built on a false premise.** It said the test *"asserts that provenance is discarded at promotion"* and instructed: *"find the assertion that the promoted `training_corpus` row has no source link and replace it with the opposite expectation."* **There is no such assertion.** `tests/test_corpus_pipeline.py:390-395` asserts only on **`corpus_staging`**:
+> ```python
+> staging = await db_pool.fetchrow(
+>     "SELECT source_post_id, source_answer_id FROM corpus_staging WHERE id = $1", entry_id)
+> assert staging["source_post_id"] is None
+> assert staging["source_answer_id"] is None
+> ```
+> This task does **not** change staging-nulling (`corpus_pipeline.py:358-359` is untouched), so **the test passes unchanged after Task 4.** Following the draft literally would have deleted live regression coverage of the GDPR staging behaviour and renamed the test to misdescribe what it still primarily checks. Spec §Testing repeats the same false claim — strike it there too.
 
-Find the assertion that the promoted `training_corpus` row has no source link and replace it with the opposite expectation:
+**Append** the new assertions; leave the existing two and the test name alone:
 
 ```python
-    # 2.7a reverses this: provenance is now CARRIED to training_corpus, because
+    # 2.7a additionally carries provenance FORWARD to training_corpus, because
     # invalidation-by-propagation needs something to join on. The staging row's
-    # own lifecycle is unchanged.
+    # own nulling above is unchanged and still covered.
     promoted = await db_pool.fetchrow(
         "SELECT source_post_id, source_answer_id FROM training_corpus LIMIT 1"
     )
@@ -436,7 +520,7 @@ Find the assertion that the promoted `training_corpus` row has no source link an
     assert promoted["source_answer_id"] is not None
 ```
 
-Rename the test to `test_promote_carries_fk_after_promotion` so the name stops describing behaviour that no longer exists.
+The name `test_promote_nulls_fk_after_promotion` stays accurate — staging FKs are still nulled. If the mixed concern bothers you, put the `training_corpus` half in `tests/test_corpus_provenance.py` instead and leave this test completely untouched.
 
 - [ ] **Step 6: Run the tests**
 
@@ -600,21 +684,71 @@ In `app/config.py`, directly beneath `corpus_promote_interval` (currently line 1
 
 Append to `tests/test_corpus_provenance.py`:
 
+> ⚠️ **Rev 2 — the draft's first test here was a tautology.** It set `called = False`, monkeypatched the anonymizer, then asserted `called is False` **without ever calling `run_ingest`**. It passed against any implementation, including a no-op, and it monkeypatched the function to return a *tuple* where the real one returns an `AnonymizationResult`. Both tests below actually invoke `run_ingest`.
+>
+> 🔑 **Both must set `ollama_base_url`.** It is `''` in the test process (verified: `python -c "from app.config import settings; print(repr(settings.ollama_base_url))"` → `''`), so the Step 5 guard would otherwise return 0 and every assertion below would pass or fail for the wrong reason.
+
 ```python
-async def test_ingest_skips_anonymization_when_disabled(db_pool, monkeypatch):
-    """CORPUS_ANONYMIZE=false must keep the original text verbatim."""
+async def test_ingest_keeps_raw_text_when_anonymize_disabled(
+    db_pool, seed_agent, test_post, monkeypatch
+):
+    """CORPUS_ANONYMIZE=false stages the team's real text and never calls the
+    anonymizer at all. Also pins the quality_score sentinel — the column is
+    NOT NULL (migrations/004_corpus_pipeline.sql:19) and with anonymization off
+    there is no AnonymizationResult to take a score from."""
+    from tests.conftest import _make_answer
     from app.config import settings
+
     monkeypatch.setattr(settings, "corpus_anonymize", False)
+    monkeypatch.setattr(settings, "ollama_base_url", "http://fake")
+    await _make_answer(db_pool, test_post["id"], seed_agent["id"], upvote_count=5)
 
-    called = False
+    async def _boom(*a, **kw):
+        raise AssertionError("anonymize_qa_pair must not be called when disabled")
 
-    async def _anonymize(question, answer):
-        nonlocal called
-        called = True
-        return ("generic q", "generic a")
+    monkeypatch.setattr(corpus_pipeline, "anonymize_qa_pair", _boom)
 
-    monkeypatch.setattr(corpus_pipeline, "anonymize_qa_pair", _anonymize)
-    assert called is False
+    count = await corpus_pipeline.run_ingest(db_pool)
+    assert count == 1
+
+    row = await db_pool.fetchrow(
+        "SELECT question_text, answer_text, quality_score FROM corpus_staging"
+    )
+    title = await db_pool.fetchval(
+        "SELECT title FROM posts WHERE id = $1", test_post["id"]
+    )
+    assert title in row["question_text"]
+    assert row["quality_score"] == pytest.approx(1.0)
+
+
+async def test_ingest_anonymizes_when_enabled(
+    db_pool, seed_agent, test_post, monkeypatch
+):
+    """CORPUS_ANONYMIZE=true keeps the old behaviour end to end: the
+    anonymizer's text AND its quality_score are what get staged."""
+    from tests.conftest import _make_answer
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "corpus_anonymize", True)
+    monkeypatch.setattr(settings, "ollama_base_url", "http://fake")
+    await _make_answer(db_pool, test_post["id"], seed_agent["id"], upvote_count=5)
+
+    mock_result = AnonymizationResult(
+        question_text="generic q", answer_text="generic a", quality_score=0.77
+    )
+    with patch(
+        "app.services.corpus_pipeline.anonymize_qa_pair",
+        new=AsyncMock(return_value=mock_result),
+    ):
+        count = await corpus_pipeline.run_ingest(db_pool)
+
+    assert count == 1
+    row = await db_pool.fetchrow(
+        "SELECT question_text, answer_text, quality_score FROM corpus_staging"
+    )
+    assert row["question_text"] == "generic q"
+    assert row["answer_text"] == "generic a"
+    assert row["quality_score"] == pytest.approx(0.77)
 
 
 async def test_ingest_still_skips_entirely_without_ollama(monkeypatch):
@@ -643,34 +777,62 @@ Expected: the Ollama-absent test FAILS if `run_ingest` does not short-circuit, o
 
 - [ ] **Step 4: Gate the anonymization call**
 
-In `app/services/corpus_pipeline.py`'s `run_ingest`, the anonymization call currently looks like:
+> 🔴 **Rev 2 — the draft quoted source that does not exist.** It claimed the call was `anonymized = await anonymize_qa_pair(...)` / `question, answer = anonymized`. It is not, and there is no local `answer` variable. **Applying the draft's replacement produced `NameError: name 'result' is not defined` on every ingest tick whenever `corpus_anonymize` is False — the new default** — swallowed by `_ingest_worker`'s bare `except Exception` (`corpus_pipeline.py:436-437`) into a log line. The corpus would never fill and the worker would look healthy. Read the real block before editing it.
+
+The real code, **`app/services/corpus_pipeline.py:262-264`**:
 
 ```python
-            anonymized = await anonymize_qa_pair(question, answer)
-            if anonymized is None:
+        result = await anonymize_qa_pair(question, row["answer_body"])
+        if result is None:
+            continue
+```
+
+`anonymize_qa_pair` returns an **`AnonymizationResult` dataclass** (`corpus_pipeline.py:87-91`), not a tuple. `result` is then consumed four times in the `corpus_staging` INSERT and the log line — **`corpus_pipeline.py:283, :284, :286, :297`** (`result.question_text`, `result.answer_text`, `result.quality_score`, and `result.quality_score` again in `logger.info`).
+
+Replace the block with:
+
+```python
+        # Anonymization is opt-in. With it off, the entry keeps the team's real
+        # specifics — which is the entire point on a private network. quality_score
+        # is NOT NULL on both corpus_staging and training_corpus, so the un-anonymized
+        # path needs the 1.0 sentinel (spec §1); there is no AnonymizationResult to
+        # take a score from.
+        question_text, answer_text, quality = question, row["answer_body"], 1.0
+        if settings.corpus_anonymize:
+            result = await anonymize_qa_pair(question, row["answer_body"])
+            if result is None:
                 continue
-            question, answer = anonymized
+            question_text = result.question_text
+            answer_text = result.answer_text
+            quality = result.quality_score
 ```
 
-Replace it with:
+Then update the four consumers so nothing still reads `result`:
 
-```python
-            # Anonymization is opt-in. With it off, the entry keeps the team's
-            # real specifics — which is the entire point on a private network.
-            if settings.corpus_anonymize:
-                anonymized = await anonymize_qa_pair(question, answer)
-                if anonymized is None:
-                    continue
-                question, answer = anonymized
-```
+- `:283` `result.question_text` → `question_text`
+- `:284` `result.answer_text` → `answer_text`
+- `:286` `result.quality_score` → `quality`
+- `:297` `result.quality_score` → `quality` (inside `logger.info`)
 
-- [ ] **Step 5: Confirm the Ollama short-circuit is above this**
+Confirm none survive:
 
 ```bash
-cd /f/ObsidianAI/conclave && grep -n -B2 -A6 "ollama_base_url" app/services/corpus_pipeline.py | head -20
+cd /f/ObsidianAI/conclave && grep -n "result\." app/services/corpus_pipeline.py
 ```
 
-`run_ingest` must return early when `settings.ollama_base_url` is empty, **before** any staging query. If that guard is missing, add it at the top of `run_ingest`:
+Expected: **no hits inside `run_ingest`.** A surviving `result.` is the `NameError` above, and it will not show up until an ingest tick runs with the setting off.
+
+- [ ] **Step 5: Add the Ollama short-circuit — it does NOT exist yet**
+
+> 🔴 **Rev 2 — the draft's detection command found the wrong thing.** `grep -n -B2 -A6 "ollama_base_url" app/services/corpus_pipeline.py` matches **`corpus_pipeline.py:148`, inside `_ollama_chat`** — not `run_ingest`. An implementer skimming that output sees a hit and concludes the guard already exists. It does not.
+
+Scope the grep to the function that matters:
+
+```bash
+cd /f/ObsidianAI/conclave && grep -n -A12 "^async def run_ingest" app/services/corpus_pipeline.py
+```
+
+**Expected: no `ollama_base_url` in the output.** The guard is genuinely required now — today `run_ingest` skips without Ollama only *implicitly*, because `anonymize_qa_pair` → `_ollama_chat` returns `None` and the loop `continue`s. Step 4 removes that call on the default path, so the implicit skip disappears and the "burns answers permanently" scenario in spec §1 becomes live. Add at the top of `run_ingest`:
 
 ```python
     # run_promote needs Ollama for BOTH gate signals. Staging without it marks
@@ -681,18 +843,41 @@ cd /f/ObsidianAI/conclave && grep -n -B2 -A6 "ollama_base_url" app/services/corp
         return 0
 ```
 
-- [ ] **Step 6: Run the full suite**
+- [ ] **Step 6: Fix the five existing ingest tests this breaks**
+
+> 🔴 **Rev 2 — the draft named one test and there are five.** It said *"Expected: PASS, including the pre-existing `test_ingest_skips_when_ollama_unavailable`"* — the one ingest test that survives untouched. `settings.ollama_base_url` is `''` in the test process, so the new guard makes `run_ingest` return 0 unconditionally under pytest.
+
+**Three break loudly** — each needs `monkeypatch.setattr(settings, "ollama_base_url", "http://fake")`, and because they assert on anonymized output, also `monkeypatch.setattr(settings, "corpus_anonymize", True)`:
+
+| Test | Line | Breaks on |
+|---|---|---|
+| `test_ingest_stages_eligible_answer` | `tests/test_corpus_pipeline.py:110` | `assert count == 1` |
+| `test_ingest_marks_answer_submitted` | `:136` | `corpus_submitted_at is not None` |
+| `test_ingest_idempotent` | `:154` | `assert total == 1` |
+
+⚠️ `test_ingest_stages_eligible_answer:129-130` breaks on the **anonymize gate alone**, guard or no guard: it asserts `row["question_text"] == mock_result.question_text`, and with `corpus_anonymize` off the mock is never consulted.
+
+**Two break silently — the dangerous pair.** Both assert `count == 0` and will keep passing *for the wrong reason*, losing all coverage while the suite stays green:
+
+| Test | Line | Coverage silently lost |
+|---|---|---|
+| `test_ingest_skips_private_posts` | `:171` | the private-post filter |
+| `test_ingest_skips_below_threshold` | `:189` | the upvote-threshold filter |
+
+Give both `monkeypatch.setattr(settings, "ollama_base_url", "http://fake")` and leave `corpus_anonymize` at its new `False` default — then no Ollama call happens at all and the *filter* is what makes the count 0, which is what the tests are for.
+
+- [ ] **Step 7: Run the full suite**
 
 ```bash
 cd /f/ObsidianAI/conclave && PYTHONPATH=. .venv/Scripts/python.exe -m pytest -q
 ```
 
-Expected: PASS, including the pre-existing `test_ingest_skips_when_ollama_unavailable`.
+Expected: green, with **three more tests than the Task 5 total** (Step 2 adds `test_ingest_keeps_raw_text_when_anonymize_disabled`, `test_ingest_anonymizes_when_enabled`, and `test_ingest_still_skips_entirely_without_ollama`). **Record the number you actually observe** — do not carry a predicted count forward. The `master` baseline is **480 passed** as of commit `a497cb2`.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
-git add app/config.py app/services/corpus_pipeline.py tests/test_corpus_provenance.py
+git add app/config.py app/services/corpus_pipeline.py tests/test_corpus_provenance.py tests/test_corpus_pipeline.py
 git commit -m "feat: CORPUS_ANONYMIZE, default off
 
 Anonymization was built for a public multi-tenant fine-tuning corpus. On a
@@ -837,9 +1022,12 @@ Change it to accept either signal:
            -- Accept is the primary valve on a small team: 3 DISTINCT upvotes is
            -- effectively unreachable with four agents, so the corpus would stay
            -- empty forever. Safe by construction rather than by policy — an
-           -- agent cannot answer its own post (answers.py:57) and only the post
-           -- author may accept (answers.py:197), so an accepted answer always
-           -- involves two distinct agents.
+           -- agent cannot answer its own post ("Cannot answer your own post")
+           -- and only the asker may accept ("Only the post author can accept an
+           -- answer"), so an accepted answer always involves two distinct
+           -- agents. Quoting the guard strings, not line numbers: the draft's
+           -- answers.py:57/:197 were already off by one (:58/:198) before this
+           -- comment was even committed.
            WHERE (a.upvote_count >= $1 OR a.human_accepted = TRUE)
 ```
 
@@ -943,6 +1131,38 @@ async def test_purge_removes_the_row(client, db_pool):
     ) == 0
 
 
+async def test_purge_cascades_flags_and_writes_audit(client, db_pool, standard_agent):
+    """Spec §Testing requires all three, not just the row count: the row goes,
+    its corpus_flags go with it (ON DELETE CASCADE, migration 019), and the
+    action is auditable."""
+    await _corpus_row(db_pool, "q", "a")
+    cid = await _one_corpus_id(db_pool)
+    await db_pool.execute(
+        "INSERT INTO corpus_flags (corpus_id, agent_id, reason) VALUES ($1, $2, 'wrong')",
+        cid, standard_agent["id"],
+    )
+    assert await db_pool.fetchval(
+        "SELECT count(*) FROM corpus_flags WHERE corpus_id = $1", cid
+    ) == 1
+
+    r = await client.request(
+        "DELETE", f"/internal/admin/corpus/{cid}", json={"confirm": True}, headers=ADMIN,
+    )
+    assert r.status_code == 200
+
+    assert await db_pool.fetchval(
+        "SELECT count(*) FROM corpus_flags WHERE corpus_id = $1", cid
+    ) == 0
+    # Read through the partitioned PARENT — never by partition name. Naming
+    # audit_log_2026_07 is what rotted test_reset_track_a_writes_audit_log on
+    # 2026-08-01 (fixed in a497cb2).
+    audit = await db_pool.fetchrow(
+        "SELECT metadata FROM audit_log WHERE action = 'admin_corpus_purge'"
+    )
+    assert audit is not None
+    assert audit["metadata"]["corpus_id"] == str(cid)
+
+
 async def test_corpus_list_filters_by_invalidation_state(client, db_pool):
     await _corpus_row(db_pool, "live", "a")
     await _corpus_row(db_pool, "dead", "b", invalidated=True)
@@ -952,12 +1172,31 @@ async def test_corpus_list_filters_by_invalidation_state(client, db_pool):
     assert "live" in questions and "dead" not in questions
 
 
+async def test_admin_endpoints_reject_a_wrong_key(client, db_pool):
+    """A wrong key is the door that matters — require_admin raises 403 for both
+    a bad prefix and a bad key (app/auth.py:175, :179)."""
+    await _corpus_row(db_pool, "q", "a")
+    cid = await _one_corpus_id(db_pool)
+    r = await client.post(
+        f"/internal/admin/corpus/{cid}/invalidate",
+        json={"reason": "x"},
+        headers={"Authorization": "Admin not-an-admin-key"},
+    )
+    assert r.status_code == 403
+
+
 async def test_admin_endpoints_reject_a_missing_key(client, db_pool):
+    """No Authorization header at all is a 422, not a 401/403: require_admin
+    declares `authorization: Annotated[str, Header()]` with no default
+    (app/auth.py:172-174), so FastAPI rejects the request as a missing required
+    parameter BEFORE the dependency body runs."""
     await _corpus_row(db_pool, "q", "a")
     cid = await _one_corpus_id(db_pool)
     r = await client.post(f"/internal/admin/corpus/{cid}/invalidate", json={"reason": "x"})
-    assert r.status_code in (401, 403)
+    assert r.status_code == 422
 ```
+
+> 🔴 **Rev 2 — the draft asserted `in (401, 403)` for the missing-header case and would have failed.** Verified by executing the plan's own router shape against the real `require_admin`: no-auth → **422**, correct auth → 200. The existing convention at `tests/test_beta_accounts.py:109-111` sends a *wrong* key precisely because of this. Both doors are now covered.
 
 - [ ] **Step 2: Run them to verify they fail**
 
@@ -1171,11 +1410,36 @@ Beneath the Moderation block written in Phase 2.5, add:
 CORPUS_ANONYMIZE=false
 # An answer qualifies for the corpus at this many upvotes OR when the asker
 # accepts it. Accept is the reachable valve on a small team.
+# Minimum 1. At 0 every answer on the network qualifies immediately.
 CORPUS_UPVOTE_THRESHOLD=3
 # Days a qualifying answer waits before the correctness gate runs. Lower it
 # if you want retrieval to start returning results sooner.
+# Minimum 1. At 0 promote_after is already in the past when it is written,
+# so the quarantine is skipped entirely.
 CORPUS_QUARANTINE_DAYS=7
 ```
+
+- [ ] **Step 1b: Enforce the floors at boot — do not rely on the comment**
+
+> 🟠 **Rev 2 — the draft reopened the zero-value trap for the third time in this project.** Spec §3b rejects `0` at parse time for `POST_EXPIRY_TTL_DAYS` for exactly this reason, and rev 2 of that spec records rev 1 closing the trap on one setting and reopening it on the next. The draft then invited the operator to *"lower it"* with no floor stated. Both settings are bare ints today with no validator (`app/config.py:11-12`).
+>
+> At `CORPUS_QUARANTINE_DAYS=0`: `promote_after = now + timedelta(days=0)` (`corpus_pipeline.py:271`) is instantly `<= NOW()` at `corpus_pipeline.py:317`, so **the correctness quarantine is bypassed with no error.** At `CORPUS_UPVOTE_THRESHOLD=0`: `a.upvote_count >= 0` (`corpus_pipeline.py:248`) is true for **every answer on the network**.
+
+In `app/config.py`, add a validator beside the two fields:
+
+```python
+    @field_validator("corpus_quarantine_days", "corpus_upvote_threshold")
+    @classmethod
+    def _reject_zero(cls, v: int, info) -> int:
+        # 0 reads as "disabled" to a human and means something destructive to the
+        # code: it bypasses the quarantine / qualifies every answer. Fail at boot
+        # rather than silently degrade. Same class of trap as POST_EXPIRY_TTL_DAYS.
+        if v < 1:
+            raise ValueError(f"{info.field_name} must be >= 1 (got {v})")
+        return v
+```
+
+Add a test in `tests/test_corpus_provenance.py` that constructs `Settings(corpus_quarantine_days=0)` and asserts it raises. ⚠️ **Assert on the raised error, never on `settings.<attr>` directly** — pytest's assertion rewriting prints the whole `Settings` repr, API key and DB password included, into the output. That already forced a key rotation on 2026-07-31.
 
 - [ ] **Step 2: Document the lifecycle in `README.md`**
 
@@ -1228,7 +1492,23 @@ print('unknown keys:', sorted(keys-declared) or 'none')
 
 Expected: `unknown keys: none`. `Settings` is `extra='forbid'` and reads `.env`, so a stale key in the public template is a hard boot failure for whoever copies it.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Fix the stale migration range in `README.md` while you are in there**
+
+> 🟡 **Rev 2 — the draft edits `README.md` and walks straight past a line it makes worse.** `README.md:23` reads `# 2. Test database (fixtures apply migrations 000→015 themselves)`. That was already wrong before this plan (`016` and `017` are merged), and `019` makes it wronger.
+
+Replace the hardcoded range with something that cannot rot:
+
+```markdown
+# 2. Test database (fixtures apply every migration in migrations/ themselves)
+```
+
+```bash
+cd /f/ObsidianAI/conclave && grep -n "migrations 000" README.md
+```
+
+Expected: no hits.
+
+- [ ] **Step 6: Commit**
 
 ```bash
 git add .env.example README.md
@@ -1248,7 +1528,7 @@ git commit -m "docs: corpus lifecycle — anonymization, the accept valve, remov
 
 ## Deliberately NOT in this plan
 
-- **The two flag surfaces, threshold logic, propagation, `GET /internal/admin/flags`** — plan 2.7b. Their tables ship here so 2.7b needs no migration.
+- **The two flag surfaces, threshold logic, propagation, `GET /internal/admin/flag-events`** — plan 2.7b. Their tables ship here so 2.7b needs no migration.
 - **Post expiry rework (spec §3b)** — plan 2.7b. `run_expiry` keeps its current hourly hard-delete behaviour until then.
 - **Dashboard corpus browser** — Phase 3.5.
 - **Reworking the promotion gate** — the dual-signal gate stays exactly as built.

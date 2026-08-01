@@ -14,7 +14,7 @@
 
 ## Scope: this is plan B of two
 
-**In this plan:** spec §3 (two flag surfaces, threshold, propagation, `GET /internal/admin/flags`) and §3b (post expiry rework).
+**In this plan:** spec §3 (two flag surfaces, threshold, propagation, `GET /internal/admin/flag-events`) and §3b (post expiry rework).
 
 **Already delivered by plan 2.7a:** migration `019` including the `answer_flags` and `corpus_flags` tables, provenance carried through `run_promote`, the `invalidated_at IS NULL` retrieval filter, `CORPUS_ANONYMIZE`, the §3c accept valve, and the operator corpus endpoints.
 
@@ -47,7 +47,7 @@ cd /f/ObsidianAI/conclave && PYTHONPATH=. .venv/Scripts/python.exe -m pytest
 | File | Responsibility |
 |---|---|
 | `app/services/flagging.py` | Threshold evaluation and propagation. Pure-ish logic, one place both surfaces call. |
-| `app/routers/internal/admin_flags_list.py` | `GET /internal/admin/flags`. |
+| `app/routers/internal/admin_flag_events.py` | `GET /internal/admin/flag-events`. |
 | `tests/test_answer_flags.py` | Answer flag surface, threshold, author exclusion. |
 | `tests/test_corpus_flags.py` | Corpus flag surface, `rag_flag_count`, NULL-author behaviour. |
 | `tests/test_flag_propagation.py` | Answer threshold invalidates its corpus descendant. |
@@ -781,14 +781,27 @@ rather than an error — most answers never reach the corpus."
 
 ---
 
-## Task 5: `GET /internal/admin/flags`
+## Task 5: `GET /internal/admin/flag-events`
 
 **Files:**
-- Create: `app/routers/internal/admin_flags_list.py`
+- Create: `app/routers/internal/admin_flag_events.py`
 - Modify: `app/main.py`
 - Test: append to `tests/test_corpus_flags.py`
 
 > Without this there is no way to see a flagging campaign — the corpus list filters by flag *count* only, and dashboard work is deferred to Phase 3.5, so this endpoint is the only visibility this phase ships.
+
+> 🔴 **Do NOT name this `/internal/admin/flags`. Rev 2 renamed it away from a live collision.**
+> `app/routers/internal/admin_flags.py:12` already owns `APIRouter(prefix="/internal/admin/flags")` and serves `@router.get("")` (`:19`) returning `{trial_posting_blocked}` — the platform kill-switch, registered at `app/main.py:138` and consumed by the operator dashboard at three call sites (`conclave-dashboard/api_client.py:121, :125, :129`).
+> The draft created a second router with the **identical prefix and an identical `GET ""`**. Starlette matches in registration order, so the draft's — registered later — would have been **unreachable dead code**, and reordering the includes would instead have **broken the dashboard's flags panel**. Neither plan mentioned it; a cold audit of plan 2.7a caught it.
+> Two routers whose modules differ by a suffix (`admin_flags.py` / `admin_flags_list.py`) is the same trap the 2.7a spec already flagged for two `DELETE`s differing by a suffix. Hence `admin_flag_events.py` and `/internal/admin/flag-events` — different word, not a longer one.
+
+- [ ] **Step 0: Prove the collision is gone before writing anything**
+
+```bash
+cd /f/ObsidianAI/conclave && grep -rn 'prefix="/internal/admin/flag' app/routers/internal/
+```
+
+Expected: exactly **one** hit — `admin_flags.py` with `/internal/admin/flags`. After Step 3 there must be exactly **two**, with **different** prefixes.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -807,7 +820,7 @@ async def test_admin_can_list_flags_with_flagger_and_reason(client, db_pool, see
         headers={"Authorization": f"Bearer {seed_agent['api_key']}"},
     )
 
-    r = await client.get("/internal/admin/flags", headers=ADMIN)
+    r = await client.get("/internal/admin/flag-events", headers=ADMIN)
     assert r.status_code == 200
     entries = r.json()["data"]
     assert len(entries) == 1
@@ -817,7 +830,7 @@ async def test_admin_can_list_flags_with_flagger_and_reason(client, db_pool, see
 
 
 async def test_flags_list_requires_admin(client):
-    r = await client.get("/internal/admin/flags")
+    r = await client.get("/internal/admin/flag-events")
     assert r.status_code in (401, 403)
 ```
 
@@ -831,7 +844,7 @@ Expected: FAIL — 404.
 
 - [ ] **Step 3: Write the router**
 
-Create `app/routers/internal/admin_flags_list.py`:
+Create `app/routers/internal/admin_flag_events.py`:
 
 ```python
 """Operator visibility into flagging.
@@ -850,7 +863,7 @@ from fastapi import APIRouter, Depends, Query
 from app.auth import require_admin
 from app.database import get_pool
 
-router = APIRouter(prefix="/internal/admin/flags", tags=["internal-admin"])
+router = APIRouter(prefix="/internal/admin/flag-events", tags=["internal-admin"])
 
 
 @router.get("")
@@ -895,13 +908,13 @@ async def list_flags(
 In `app/main.py`:
 
 ```python
-from app.routers.internal.admin_flags_list import router as admin_flags_list_router
+from app.routers.internal.admin_flag_events import router as admin_flag_events_router
 ```
 
 and:
 
 ```python
-app.include_router(admin_flags_list_router)
+app.include_router(admin_flag_events_router)
 ```
 
 - [ ] **Step 5: Run the tests**
@@ -915,8 +928,8 @@ Expected: PASS.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add app/routers/internal/admin_flags_list.py app/main.py tests/test_corpus_flags.py
-git commit -m "feat: GET /internal/admin/flags for operator visibility
+git add app/routers/internal/admin_flag_events.py app/main.py tests/test_corpus_flags.py
+git commit -m "feat: GET /internal/admin/flag-events for operator visibility
 
 The corpus list filters by flag count only, so a flagging campaign was
 invisible. Dashboard work is Phase 3.5; this is the visibility 2.7b ships."
@@ -1526,7 +1539,7 @@ Two honest limits:
   that host yields four identities and clears a threshold of 3. The guard raises
   the bar for an ordinary agent; it does not stop someone who owns the seed host.
 
-Operators can see flagging activity at `GET /internal/admin/flags`.
+Operators can see flagging activity at `GET /internal/admin/flag-events`.
 
 ### Post expiry
 
