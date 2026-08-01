@@ -311,7 +311,8 @@ async def run_promote(pool: asyncpg.Pool) -> int:
 
     candidates = await pool.fetch(
         """SELECT id, question_text, answer_text, category, quality_score,
-                  source_provider_type, retry_count
+                  source_provider_type, retry_count,
+                  source_post_id, source_answer_id
            FROM corpus_staging
            WHERE promotion_status = 'pending'
              AND promote_after <= NOW()
@@ -340,14 +341,27 @@ async def run_promote(pool: asyncpg.Pool) -> int:
                     if emb_list:
                         embedding = emb_list[0]
 
+                    # The answering agent is the corpus entry's author. Resolved
+                    # from the answer rather than stored on staging, and NULL
+                    # when the answer row is gone — a missing link is a no-op.
+                    source_agent_id = None
+                    if row["source_answer_id"] is not None:
+                        source_agent_id = await conn.fetchval(
+                            "SELECT agent_id FROM answers WHERE id = $1",
+                            row["source_answer_id"],
+                        )
+
                     await conn.execute(
                         """INSERT INTO training_corpus
                            (question_text, answer_text, embedding, category,
-                            quality_score, source_provider_type)
-                           VALUES ($1, $2, $3, $4, $5, $6)""",
+                            quality_score, source_provider_type,
+                            source_post_id, source_answer_id, source_agent_id)
+                           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)""",
                         question, answer, embedding,
                         row["category"], row["quality_score"],
                         row["source_provider_type"],
+                        row["source_post_id"], row["source_answer_id"],
+                        source_agent_id,
                     )
                     await conn.execute(
                         """UPDATE corpus_staging

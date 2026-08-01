@@ -394,6 +394,16 @@ async def test_promote_nulls_fk_after_promotion(db_pool, seed_agent, test_post):
     assert staging["source_post_id"] is None
     assert staging["source_answer_id"] is None
 
+    # 2.7a additionally carries provenance FORWARD to training_corpus, because
+    # invalidation-by-propagation needs something to join on. The staging row's
+    # own nulling above is unchanged and still covered — this is an addition to
+    # this test, not a replacement of it.
+    promoted = await db_pool.fetchrow(
+        "SELECT source_post_id, source_answer_id FROM training_corpus LIMIT 1"
+    )
+    assert promoted["source_post_id"] is not None
+    assert promoted["source_answer_id"] is not None
+
 
 async def test_promote_multiple_entries(db_pool):
     """Promote worker handles multiple ready entries in a single cycle."""
