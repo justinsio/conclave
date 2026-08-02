@@ -138,8 +138,10 @@ def evaluate_bars(scores: dict[str, SliceScore]) -> list[tuple[str, bool, str]]:
     for slc in _PERSUASION_SLICES:
         s = scores.get(slc)
         if s:
-            p_rows += s.n_rows; p_leak += s.leak_rows
-            p_items += s.n_items; p_leaky += s.leaky_items
+            p_rows += s.n_rows
+            p_leak += s.leak_rows
+            p_items += s.n_items
+            p_leaky += s.leaky_items
     if p_rows:
         rate = p_leak / p_rows
         passed = rate <= PERSUASION_MAX_FALSE_PASS

@@ -29,7 +29,10 @@ jobs:
           # individually verified for backend asyncpg SQL only. Folding these
           # targets into that call would silently extend the skip to code
           # nobody audited for it.
-          .venv/bin/python -m bandit -r seeds dashboard -x ./seeds/tests,./dashboard/tests -q
+          # NO leading "./" on the exclude paths — that form silently matches
+          # nothing (verified: 136 findings / 39 files with it, 0 / 21 without),
+          # so bandit would flood on B101 assert_used in the test modules.
+          .venv/bin/python -m bandit -r seeds dashboard -x seeds/tests,dashboard/tests -q
 
       - name: Ensure test database
         run: |
