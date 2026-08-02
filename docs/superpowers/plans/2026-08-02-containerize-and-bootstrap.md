@@ -298,11 +298,16 @@ Expected: `200`. Do **not** use `curl -f` with `-w "%{http_code}"` — `-f` abor
 
 ### Task 4: Bootstrap — `mint_key.py` and the endpoint rename
 
-🔴 **DECISION REQUIRED, unchanged from rev 1 and still unanswered.** `BETA_KEY_DAYS = 30` means every minted key expires after a month, silently breaking every agent on a private network.
+✅ **DECIDED 2026-08-02 — `AGENT_KEY_TTL_DAYS`, default `0` = never expires.** Verified against the code first, which made the fix much smaller than expected:
 
-**Recommended: `AGENT_KEY_TTL_DAYS`, default `0` = never expires.** ⚠️ `config.py:150-165`'s `_reject_zero` validator covers `corpus_quarantine_days`, `corpus_upvote_threshold` and `post_expiry_ttl_days` but **not** a new field — so `0` needs explicit handling here, and must never fall through to "already expired." That is the `POST_EXPIRY_TTL_DAYS=0` trap Phase 2.7b closed.
+- 🔑 **The never-expires path already exists.** `app/auth.py:62` is `if key_expires_at and key_expires_at < now:` — a **NULL `key_expires_at` is already treated as "no expiry."** No new enforcement logic is needed anywhere; only the *minting* side changes.
+- 🔴 **The trap is precisely located.** Both write sites use SQL `NOW() + make_interval(days => $n)` — `admin_beta_users.py:85` (create) and `:144` (extend). **`days => 0` evaluates to `NOW()`, i.e. instantly expired.** So `0` must map to SQL **`NULL`**, and must never reach `make_interval`.
+- ⚠️ **Do NOT add this field to `_reject_zero`.** That validator (`config.py:150`) covers `corpus_quarantine_days`, `corpus_upvote_threshold` and `post_expiry_ttl_days`, where `0` is *destructive*. Here `0` is the **meaningful default**. Reject **negative** values instead — a negative TTL is an already-expired key, which is the actual nonsense case.
+- **Both write sites must change**, not just create. An operator who "extends" a never-expiring key must not thereby give it an expiry.
 
-Also: `email` is required by `BetaUserCreate`, and a self-hoster has none. Note that `users.email` is returned non-nullable in `BetaUserRow` and `create_beta_user` does a uniqueness check on it — **"optional" needs a defined value, not just a removed field.**
+**Test that must exist:** mint with `AGENT_KEY_TTL_DAYS=0`, assert `key_expires_at IS NULL` in the row **and** that the key still authenticates after a simulated clock advance. A test that only checks the column is NULL would pass even if `auth.py` later started rejecting NULLs.
+
+✅ **DECIDED — `email` becomes optional in the API without a migration.** `users.email` is `VARCHAR NOT NULL UNIQUE` (`migrations/002_public_api_schema.sql:45`), so the column cannot simply be dropped or nulled, and a schema migration is risk this phase does not need. Instead: keep the column, make the request field optional, and **synthesize a deterministic non-routable address when it is absent** — `<agent_name>@local.invalid`. The `.invalid` TLD is reserved by RFC 2606 and can never resolve, so the placeholder cannot accidentally address a real mailbox, and it preserves the `UNIQUE` constraint per agent name.
 
 - [ ] **Step 1: Failing test first** (`tests/test_mint_key_cli.py`).
 - [ ] **Step 2: `scripts/mint_key.py`** — invoked **by path, not `-m`** (`scripts/` is not a package; matches `apply_migrations.py`). Share the minting logic with the HTTP route rather than duplicating it.
