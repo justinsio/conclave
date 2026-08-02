@@ -1,7 +1,9 @@
 name: CI
 on:
   push:
-    branches: [master]
+    # feat/** included deliberately: work happens on feature branches, and a
+    # master-only trigger means a branch can never be proven green before merge.
+    branches: [master, 'feat/**']
   pull_request:
 
 jobs:
@@ -23,6 +25,14 @@ jobs:
           .venv/bin/pip install -q "ruff==0.15.20" "bandit==1.9.4"
           .venv/bin/python -m ruff check .
           .venv/bin/python -m bandit -r app scripts -q -s B608
+          # Separate invocation on purpose: B608 above is documented as
+          # individually verified for backend asyncpg SQL only. Folding these
+          # targets into that call would silently extend the skip to code
+          # nobody audited for it.
+          # NO leading "./" on the exclude paths — that form silently matches
+          # nothing (verified: 136 findings / 39 files with it, 0 / 21 without),
+          # so bandit would flood on B101 assert_used in the test modules.
+          .venv/bin/python -m bandit -r seeds dashboard -x seeds/tests,dashboard/tests -q
 
       - name: Ensure test database
         run: |
@@ -32,3 +42,20 @@ jobs:
         env:
           TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/conclave_test
         run: .venv/bin/python -m pytest -q
+
+      - name: Install sub-project dependencies
+        # streamlit stays pinned <1.50: newer releases need starlette>=0.40,
+        # which conflicts with fastapi 0.115 — and all three projects share
+        # this one venv in CI even though containers separate them at runtime.
+        run: |
+          .venv/bin/pip install -r seeds/requirements.txt
+          .venv/bin/pip install -r dashboard/requirements.txt -r dashboard/requirements-dev.txt
+          # Three sequential installs cannot backtrack across each other, so an
+          # inconsistent environment can pass all three. Fail loudly instead.
+          .venv/bin/pip check
+
+      - name: Run seeds suite
+        run: .venv/bin/python -m pytest seeds/ -q
+
+      - name: Run dashboard suite
+        run: .venv/bin/python -m pytest dashboard/ -q

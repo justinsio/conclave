@@ -28,6 +28,14 @@ Verified 2026-08-02:
 
 After the merge, **`tests` and `scripts` are ambiguous top-level names** — both the backend root and `seeds/` provide them. The resolution is *not* to rewrite imports. It is to keep each suite's `pytest.ini` in place and always invoke the sub-suites by directory (`pytest seeds/`), which makes pytest select that directory as rootdir and apply its `pythonpath = .`. Task 4 verifies this empirically rather than trusting the reasoning.
 
+## Environment facts, verified 2026-08-02 before execution
+
+Confirmed by running them on the target machine, not assumed:
+
+- **The interpreter is `.venv/Scripts/python.exe`, not `.venv/bin/python`.** This is a Windows box (Python 3.12.13); `.venv/bin/python` does not exist. The **CI workflow correctly keeps `.venv/bin/python`** because the `homelab` runner is Linux. Every *local* command below uses the Windows path; the only place `bin/python` survives is inside the CI YAML, and that is deliberate. `scripts/run_all_tests.sh` (Task 5) resolves the path at runtime so it works in both.
+- **The backend suite runs here: 575 tests collected.** Postgres is listening on 5432 and `.env` supplies both `DATABASE_URL` and `TEST_DATABASE_URL`. ⚠️ The CI default `postgres:postgres@localhost` **does not** authenticate on this machine — the local credentials come from `.env`. Do not "fix" a connection failure by editing the connection string; the working configuration is already there.
+- **Branch: all work happens on `feat/monorepo-merge`**, never directly on `master`. This matches the repo's existing convention (`feat/self-host-config`, `feat/moderation-v1-content-gate`) and makes the entire merge discardable by deleting one branch.
+
 ## File structure after this plan
 
 ```
@@ -52,7 +60,7 @@ Nothing in this plan can claim "nothing broke" without a recorded before-state.
 **Files:**
 - Create: `/tmp/premerge-baseline.txt` (scratch, not committed)
 
-- [ ] **Step 1: Confirm `git subtree` exists**
+- [x] **Step 1: Confirm `git subtree` exists**
 
 ```bash
 git subtree --help >/dev/null 2>&1 && echo "subtree OK" || echo "MISSING — stop"
@@ -60,7 +68,7 @@ git subtree --help >/dev/null 2>&1 && echo "subtree OK" || echo "MISSING — sto
 
 Expected: `subtree OK`. If missing, stop — the whole plan depends on it.
 
-- [ ] **Step 2: Confirm all three working trees are clean**
+- [x] **Step 2: Confirm all three working trees are clean**
 
 ```bash
 for r in conclave conclave-seeds conclave-dashboard; do
@@ -70,12 +78,12 @@ done
 
 Expected: `0` for all three. A dirty tree makes `git subtree add` refuse.
 
-- [ ] **Step 3: Record each suite's passing count**
+- [x] **Step 3: Record each suite's passing count**
 
 ```bash
 {
   echo "=== conclave ==="
-  (cd /f/ObsidianAI/conclave && .venv/bin/python -m pytest -q 2>&1 | tail -3)
+  (cd /f/ObsidianAI/conclave && .venv/Scripts/python.exe -m pytest -q 2>&1 | tail -3)
   echo "=== conclave-seeds ==="
   (cd /f/ObsidianAI/conclave-seeds && python -m pytest -q 2>&1 | tail -3)
   echo "=== conclave-dashboard ==="
@@ -89,15 +97,17 @@ Expected: three `N passed` lines, no failures.
 
 ```bash
 cd /f/ObsidianAI/conclave-seeds && uv venv .venv-baseline --python 3.12 --seed \
-  && .venv-baseline/bin/pip install -q -r requirements.txt \
-  && .venv-baseline/bin/python -m pytest -q 2>&1 | tail -3
+  && .venv-baseline/Scripts/python.exe -m pip install -q -r requirements.txt \
+  && .venv-baseline/Scripts/python.exe -m pytest -q 2>&1 | tail -3
 ```
+
+(Windows venv layout again — `Scripts/`, not `bin/`. Delete `.venv-baseline` afterwards; it is scratch, and both sub-repos are about to stop being separate repositories anyway.)
 
 **Skipping a baseline is not acceptable.** Task 4 compares against these numbers, and "I did not record it" and "it did not change" are indistinguishable afterwards.
 
 **If any suite is already red, stop and fix that first** — merging on top of a red tree makes the cause of every later failure ambiguous. (This exact situation occurred on 2026-08-01: the tree was already red on arrival because a test rotted at midnight on a date.)
 
-- [ ] **Step 4: No commit**
+- [x] **Step 4: No commit**
 
 This task produces evidence, not changes.
 
@@ -108,7 +118,7 @@ This task produces evidence, not changes.
 **Files:**
 - Create: `seeds/` (entire subtree)
 
-- [ ] **Step 1: Add the source as a temporary local remote**
+- [x] **Step 1: Add the source as a temporary local remote**
 
 A local path avoids both the network and baking the Gitea LAN address into this repo's config.
 
@@ -120,7 +130,7 @@ git fetch seeds-src master
 
 Expected: `* branch master -> FETCH_HEAD`.
 
-- [ ] **Step 2: Graft the history under `seeds/`**
+- [x] **Step 2: Graft the history under `seeds/`**
 
 **Do not pass `--squash`** — squashing discards the history this merge exists to preserve.
 
@@ -130,15 +140,19 @@ git subtree add --prefix=seeds seeds-src master
 
 Expected: `Added dir 'seeds'` and a merge commit.
 
-- [ ] **Step 3: Verify history came across, not just files**
+- [x] **Step 3: Verify history came across, not just files**
+
+⚠️ **Do NOT use `git log --oneline -- seeds/`** — it returns `1` even on a correct non-squashed merge. Path-limited log only matches commits whose own diff touches that literal path, and the imported commits have their content at the source repo's root; the `seeds/` prefix exists only in the merge commit's tree.
 
 ```bash
-git log --oneline -- seeds/ | wc -l
+echo "imported: $(git log --oneline HEAD^2 | wc -l) commits"
+echo "source:   $(git -C /f/ObsidianAI/conclave-seeds log --oneline master | wc -l) commits"
+git log -1 --format='parents=%p'
 ```
 
-Expected: **more than 1** — around 27 commits. If it returns `1`, the history was squashed and Step 2 must be redone.
+Expected: the counts **match** (35 as of 2026-08-02) and `parents=` lists **two** SHAs. A squash would show one parent and no second-parent chain.
 
-- [ ] **Step 4: Remove the temporary remote**
+- [x] **Step 4: Remove the temporary remote**
 
 ```bash
 git remote remove seeds-src
@@ -147,7 +161,7 @@ git remote -v
 
 Expected: only `origin` remains.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 `git subtree add` already created the commit. Verify and move on:
 
@@ -167,7 +181,7 @@ Identical mechanics to Task 2, different prefix. Repeated in full deliberately �
 **Files:**
 - Create: `dashboard/` (entire subtree)
 
-- [ ] **Step 1: Add the source as a temporary local remote**
+- [x] **Step 1: Add the source as a temporary local remote**
 
 ```bash
 cd /f/ObsidianAI/conclave
@@ -177,7 +191,7 @@ git fetch dashboard-src master
 
 Expected: `* branch master -> FETCH_HEAD`.
 
-- [ ] **Step 2: Graft the history under `dashboard/`**
+- [x] **Step 2: Graft the history under `dashboard/`**
 
 ```bash
 git subtree add --prefix=dashboard dashboard-src master
@@ -185,15 +199,21 @@ git subtree add --prefix=dashboard dashboard-src master
 
 Expected: `Added dir 'dashboard'`.
 
-- [ ] **Step 3: Verify history came across**
+- [x] **Step 3: Verify history came across**
+
+⚠️ **Do NOT use `git log --oneline -- dashboard/`.** It returns `1` even on a perfectly good non-squashed merge, because path-limited log only matches commits whose own diff touches that literal path — and the imported commits have their content at the *source repo's root*, not under `dashboard/`. That prefix exists only in the merge commit's tree. This false alarm was found during Task 2 execution on 2026-08-02.
+
+Verify the second-parent chain instead:
 
 ```bash
-git log --oneline -- dashboard/ | wc -l
+echo "imported: $(git log --oneline HEAD^2 | wc -l) commits"
+echo "source:   $(git -C /f/ObsidianAI/conclave-dashboard log --oneline master | wc -l) commits"
+git log -1 --format='parents=%p'
 ```
 
-Expected: **more than 1** — around 10 commits.
+Expected: the two counts **match**, and `parents=` shows **two** SHAs. A squashed merge would show one parent and no chain.
 
-- [ ] **Step 4: Remove the temporary remote**
+- [x] **Step 4: Remove the temporary remote**
 
 ```bash
 git remote remove dashboard-src
@@ -202,7 +222,7 @@ git remote -v
 
 Expected: only `origin` remains.
 
-- [ ] **Step 5: Verify the tree**
+- [x] **Step 5: Verify the tree**
 
 ```bash
 git status --porcelain
@@ -220,18 +240,18 @@ This is the task the collision analysis exists for. **Verify by executing, not b
 **Files:**
 - Modify: none expected — but `seeds/pytest.ini` or `dashboard/pytest.ini` may need adjustment if Step 2 or 3 fails.
 
-- [ ] **Step 1: Backend suite — must be unaffected**
+- [x] **Step 1: Backend suite — must be unaffected**
 
 ```bash
-cd /f/ObsidianAI/conclave && .venv/bin/python -m pytest -q 2>&1 | tail -3
+cd /f/ObsidianAI/conclave && .venv/Scripts/python.exe -m pytest -q 2>&1 | tail -3
 ```
 
 Expected: the same passing count as the `conclave` section of `/tmp/premerge-baseline.txt`. `testpaths = tests` in the root `pytest.ini` means a bare `pytest` still collects only backend tests — `seeds/tests` and `dashboard/tests` are not swept in.
 
-- [ ] **Step 2: Seeds suite — the risky one**
+- [x] **Step 2: Seeds suite — the risky one**
 
 ```bash
-cd /f/ObsidianAI/conclave && .venv/bin/python -m pytest seeds/ -q 2>&1 | tail -3
+cd /f/ObsidianAI/conclave && .venv/Scripts/python.exe -m pytest seeds/ -q 2>&1 | tail -3
 ```
 
 Expected: the same count as the `conclave-seeds` baseline.
@@ -241,20 +261,20 @@ Expected: the same count as the `conclave-seeds` baseline.
 **If it fails with `ModuleNotFoundError` or collects the wrong `tests` package**, the rootdir did not resolve as expected. Fix by making it explicit rather than by rewriting imports:
 
 ```bash
-.venv/bin/python -m pytest seeds/ -q -c seeds/pytest.ini --rootdir=seeds
+.venv/Scripts/python.exe -m pytest seeds/ -q -c seeds/pytest.ini --rootdir=seeds
 ```
 
 If that works, record the working invocation — Task 5 and Task 7 must both use it.
 
-- [ ] **Step 3: Dashboard suite**
+- [x] **Step 3: Dashboard suite**
 
 ```bash
-cd /f/ObsidianAI/conclave && .venv/bin/python -m pytest dashboard/ -q 2>&1 | tail -3
+cd /f/ObsidianAI/conclave && .venv/Scripts/python.exe -m pytest dashboard/ -q 2>&1 | tail -3
 ```
 
 Expected: the same count as the `conclave-dashboard` baseline. Same fallback as Step 2 if it fails.
 
-- [ ] **Step 4: Confirm no suite silently shrank**
+- [x] **Step 4: Confirm no suite silently shrank**
 
 ```bash
 cat /tmp/premerge-baseline.txt
@@ -262,7 +282,7 @@ cat /tmp/premerge-baseline.txt
 
 Compare all three counts by eye. **A lower count is a failure even when nothing is red** — silently uncollected tests are the failure mode this step exists to catch.
 
-- [ ] **Step 5: Commit only if a fix was needed**
+- [x] **Step 5: Commit only if a fix was needed**
 
 If Steps 2 or 3 required changes:
 
@@ -282,7 +302,7 @@ Without this, someone runs bare `pytest`, sees green, and believes they tested t
 **Files:**
 - Create: `scripts/run_all_tests.sh`
 
-- [ ] **Step 1: Write the script**
+- [x] **Step 1: Write the script**
 
 Use the exact invocations proven in Task 4. If Task 4 needed the `-c … --rootdir=…` fallback, use that form here instead.
 
@@ -294,7 +314,20 @@ Use the exact invocations proven in Task 4. If Task 4 needed the `-c … --rootd
 # directory. See docs/superpowers/plans/2026-08-02-monorepo-merge.md Task 4.
 set -euo pipefail
 
-PY="${PYTHON:-.venv/bin/python}"
+# The venv layout differs by platform: Windows puts the interpreter in
+# .venv/Scripts/python.exe, Linux (and the CI runner) in .venv/bin/python.
+# Resolve it rather than hardcoding, so the same script works in both places.
+if [ -n "${PYTHON:-}" ]; then
+  PY="$PYTHON"
+elif [ -x .venv/Scripts/python.exe ]; then
+  PY=.venv/Scripts/python.exe
+elif [ -x .venv/bin/python ]; then
+  PY=.venv/bin/python
+else
+  echo "No interpreter found — expected .venv/Scripts/python.exe or .venv/bin/python." >&2
+  echo "Override with PYTHON=/path/to/python" >&2
+  exit 1
+fi
 
 echo "=== backend ==="
 "$PY" -m pytest -q
@@ -308,7 +341,7 @@ echo "=== dashboard ==="
 echo "All three suites passed."
 ```
 
-- [ ] **Step 2: Make it executable and run it**
+- [x] **Step 2: Make it executable and run it**
 
 ```bash
 chmod +x scripts/run_all_tests.sh
@@ -317,7 +350,7 @@ chmod +x scripts/run_all_tests.sh
 
 Expected: three passing sections, then `All three suites passed.` Counts must match `/tmp/premerge-baseline.txt`.
 
-- [ ] **Step 3: Verify it fails loudly**
+- [x] **Step 3: Verify it fails loudly**
 
 `set -e` must abort on the first failing suite rather than running on and reporting success. The script takes no arguments, so force a failure through the one input it does read — the `PYTHON` override:
 
@@ -327,7 +360,7 @@ PYTHON=/nonexistent/python ./scripts/run_all_tests.sh; echo "exit=$?"
 
 Expected: it aborts during the backend section with a **non-zero** exit and never prints `All three suites passed.` **If it prints the success line, `set -e` is not doing its job** — fix it before continuing, or this script will lie at exactly the moment it matters.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add scripts/run_all_tests.sh
@@ -336,31 +369,67 @@ git commit -s -m "test: add scripts/run_all_tests.sh covering all three suites"
 
 ---
 
-### Task 6: Collapse the duplicated policy files
+### Task 6: Consolidate the policy files — **merge content, then delete**
 
-The subtrees each brought their own `LICENSE`, `CONTRIBUTING.md` and `SECURITY.md`, committed 2026-08-02. Three copies of a policy means two of them go stale.
+> [!danger] Corrected 2026-08-02 after a cold-reader audit. **The original version of this task was destructive.**
+> It asserted that the subtrees brought "duplicate" policy files. **Only `LICENSE` is a duplicate.** Verified by blob OID:
+> - `LICENSE` → `261eeb9e` in all three locations ✅ genuinely identical
+> - `CONTRIBUTING.md` → `3d58734b` / `c622c1ff` / `ecf7285c` 🔴 **three different documents**
+> - `SECURITY.md` → `f1ac1ef4` / `12ccc6a8` / `6a840fdd` 🔴 **three different documents**
+>
+> They were written per-repository on purpose. Deleting them destroys the **only** written record of several security invariants — `grep -c unsafe_allow_html CONTRIBUTING.md` returns **0** at the root and **1** under `dashboard/`.
 
 **Files:**
-- Delete: `seeds/LICENSE`, `seeds/CONTRIBUTING.md`, `seeds/SECURITY.md`
-- Delete: `dashboard/LICENSE`, `dashboard/CONTRIBUTING.md`, `dashboard/SECURITY.md`
+- Modify: `CONTRIBUTING.md`, `SECURITY.md` (absorb the unique sub-project content)
+- Delete: `seeds/LICENSE`, `dashboard/LICENSE` (true duplicates)
+- Delete: `seeds/CONTRIBUTING.md`, `seeds/SECURITY.md`, `dashboard/CONTRIBUTING.md`, `dashboard/SECURITY.md` — **only after their unique content is merged**
 - Modify: `seeds/README.md`, `dashboard/README.md` — repoint their License sections
 
-- [ ] **Step 1: Confirm the root copies are the ones to keep**
+- [x] **Step 1: Compare blobs, not bytes**
+
+`md5sum` gives a **false mismatch** here: `core.autocrlf=true`, so the subtree materialised the sub-copies with CRLF while the root file is LF. The git blobs are identical. Compare what git stores:
 
 ```bash
-md5sum LICENSE seeds/LICENSE dashboard/LICENSE
+git ls-files -s LICENSE seeds/LICENSE dashboard/LICENSE | awk '{print $2, $4}'
+git ls-files -s CONTRIBUTING.md seeds/CONTRIBUTING.md dashboard/CONTRIBUTING.md | awk '{print $2, $4}'
+git ls-files -s SECURITY.md seeds/SECURITY.md dashboard/SECURITY.md | awk '{print $2, $4}'
 ```
 
-Expected: three identical hashes (`86d3f3a9…`). If they differ, stop and investigate before deleting anything.
+Expected: **one repeated OID for `LICENSE`** (`261eeb9e…`), and **three distinct OIDs each** for `CONTRIBUTING.md` and `SECURITY.md`. That difference is the whole reason for Step 2.
 
-- [ ] **Step 2: Delete the duplicates**
+- [x] **Step 2: Merge the unique content into the root files — before deleting anything**
+
+Read all six sub-files. Fold every rule that does not already exist at the root into the root documents.
+
+Into **`CONTRIBUTING.md`**, add a section covering the per-project invariants:
+- From `dashboard/CONTRIBUTING.md` — the two non-negotiables: **agent-authored content renders with `st.text()` only, never `st.markdown()`, never `unsafe_allow_html=True`** (the dashboard's XSS boundary; a PR crossing it is rejected), and **the dashboard binds `127.0.0.1`** and must not gain features assuming network exposure.
+- From `seeds/CONTRIBUTING.md` — **prompt-isolation changes get extra scrutiny**: anything touching how untrusted content is wrapped before reaching a model must explain the threat it addresses and must not widen the trusted boundary.
+
+Into **`SECURITY.md`**, add `### Scope: seeds/` and `### Scope: dashboard/` subsections:
+- **seeds** — `seeds/prompt_isolation.py` (a *different file* from the backend's `app/services/prompt_isolation.py`, which is what root currently names), provider API-key handling, and the seed HTTP client's trust in backend responses. Plus the out-of-scope line separating a bad model answer from a boundary violation.
+- **dashboard** — the `st.text()` rendering boundary, `CONCLAVE_ADMIN_KEY` handling, and the startup guard rejecting a non-local cleartext `CONCLAVE_API_URL`. Root currently mentions the dashboard **only** as an accepted limitation and names none of these.
+
+- [x] **Step 3: Prove nothing was lost before deleting**
+
+For each of the four non-duplicate files, confirm its distinctive phrases now appear at the root:
+
+```bash
+for t in unsafe_allow_html "127.0.0.1" prompt_isolation CONCLAVE_ADMIN_KEY CONCLAVE_API_URL; do
+  printf "%-22s root CONTRIBUTING=%s  root SECURITY=%s\n" "$t" \
+    "$(grep -ci "$t" CONTRIBUTING.md)" "$(grep -ci "$t" SECURITY.md)"
+done
+```
+
+Expected: **every term appears at least once** across the two root files. A zero means that rule is about to be deleted and not preserved — go back to Step 2. Do not proceed on a zero.
+
+- [x] **Step 4: Now delete the sub-copies**
 
 ```bash
 git rm seeds/LICENSE seeds/CONTRIBUTING.md seeds/SECURITY.md
 git rm dashboard/LICENSE dashboard/CONTRIBUTING.md dashboard/SECURITY.md
 ```
 
-- [ ] **Step 3: Repoint the sub-READMEs**
+- [x] **Step 5: Repoint the sub-READMEs**
 
 In both `seeds/README.md` and `dashboard/README.md`, replace the `## License` section body with:
 
@@ -373,20 +442,26 @@ Contributions require a DCO sign-off — see [CONTRIBUTING.md](../CONTRIBUTING.m
 To report a vulnerability, see [SECURITY.md](../SECURITY.md).
 ```
 
-- [ ] **Step 4: Verify no broken relative links remain**
+- [x] **Step 6: Verify no broken relative links remain**
+
+⚠️ `cmd || echo "clean"` prints the success line on **any** non-zero exit, including grep erroring on a missing path — so a typo passes silently. Guard the directories first:
 
 ```bash
-grep -rnE '\]\((\./)?(LICENSE|CONTRIBUTING\.md|SECURITY\.md)\)' seeds/ dashboard/ || echo "clean — no same-directory policy links left"
+test -d seeds && test -d dashboard || { echo "MISSING DIR — stop"; exit 1; }
+grep -rnE '\]\((\./)?(LICENSE|CONTRIBUTING\.md|SECURITY\.md)\)' seeds/ dashboard/
+echo "exit=$?  (1 = no matches = clean; 2 = grep error = investigate)"
 ```
 
-Expected: `clean — …`. Any hit is a link that now points at a deleted file.
+Expected: `exit=1`. Any match is a link now pointing at a deleted file. **`exit=2` is an error, not a pass.**
 
-- [ ] **Step 5: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
-git add -A seeds dashboard
-git commit -s -m "docs: single set of policy files for the monorepo"
+git add -A seeds dashboard CONTRIBUTING.md SECURITY.md
+git commit -s -m "docs: consolidate policy files, preserving per-project security rules"
 ```
+
+Note the root `CONTRIBUTING.md` and `SECURITY.md` are staged too — Step 2 modified them, and omitting them would commit the deletions without the content that replaces them.
 
 ---
 
@@ -398,13 +473,37 @@ Gitea Actions only reads workflows from the repository root. After the merge, `s
 - Modify: `.gitea/workflows/ci.yml`
 - Delete: `seeds/.gitea/workflows/ci.yml`, `dashboard/.gitea/workflows/ci.yml`
 
-- [ ] **Step 1: Delete the dead workflows**
+- [x] **Step 1: Delete the dead workflows**
 
 ```bash
 git rm seeds/.gitea/workflows/ci.yml dashboard/.gitea/workflows/ci.yml
 ```
 
-- [ ] **Step 2: Extend the root workflow**
+Each `.gitea` tree holds exactly this one file, so both directories cease to exist — which matters for the commit step below.
+
+- [x] **Step 1b: 🔴 Widen the trigger, or the plan's completion gate is unreachable**
+
+The root workflow currently fires only on pushes to `master` and on pull requests:
+
+```yaml
+on:
+  push:
+    branches: [master]
+  pull_request:
+```
+
+Task 10 pushes `feat/monorepo-merge` and **forbids merging to `master`** — so no CI run would ever appear, and "do not proceed to Plan B until CI is green" could never be satisfied. (No feature branch has ever been pushed to this origin, so there's no precedent either.) Fix it here:
+
+```yaml
+on:
+  push:
+    branches: [master, 'feat/**']
+  pull_request:
+```
+
+Alternative if you'd rather not widen the trigger: add an explicit step to Task 10 that opens a Gitea PR `feat/monorepo-merge → master`, which fires the `pull_request` trigger. **Pick one — it must be a step, not an assumption.**
+
+- [x] **Step 2: Extend the root workflow**
 
 Add these steps to the existing `test` job in `.gitea/workflows/ci.yml`, after the existing `Run test suite` step. Keep `runs-on: homelab` and every existing step unchanged.
 
@@ -423,31 +522,40 @@ Add these steps to the existing `test` job in `.gitea/workflows/ci.yml`, after t
 
 ⚠️ **`dashboard/requirements.txt` pins `streamlit<1.50` because newer Streamlit needs `starlette>=0.40`, which conflicts with `fastapi 0.115` when sharing one Python environment — and CI shares one `.venv` across all three.** That pin is therefore load-bearing *in CI* even though the design spec notes it stops being necessary once each service has its own container. **Do not unpin it here.** If the combined install fails, split CI into three jobs with separate venvs rather than relaxing the pin.
 
-- [ ] **Step 3: Verify the workflow parses**
+- [x] **Step 3: Verify the workflow parses**
 
 ```bash
-.venv/bin/python -c "import yaml,sys; yaml.safe_load(open('.gitea/workflows/ci.yml')); print('YAML OK')"
+.venv/Scripts/python.exe -c "import yaml,sys; yaml.safe_load(open('.gitea/workflows/ci.yml')); print('YAML OK')"
 ```
 
 Expected: `YAML OK`.
 
-- [ ] **Step 4: Verify the combined install actually resolves**
+- [x] **Step 4: Verify the install the way CI actually does it**
 
-Do this locally before trusting CI:
+⚠️ Two corrections. `.venv/bin/pip` does not exist here (Windows layout), **and this venv has no `pip` at all** — it was created by `uv venv` without `--seed`. Also, a single combined four-file resolution does **not** model CI: CI runs three *separate sequential* installs, and pip does not backtrack across invocations, so a combined probe can pass where CI produces an inconsistent environment, or fail on a constraint CI never hits.
+
+Mirror CI in a throwaway venv:
 
 ```bash
-.venv/bin/pip install --dry-run -r requirements.txt -r seeds/requirements.txt -r dashboard/requirements.txt -r dashboard/requirements-dev.txt
+uv venv .venv-cicheck --python 3.12 --seed
+.venv-cicheck/Scripts/python.exe -m pip install -q -r requirements.txt
+.venv-cicheck/Scripts/python.exe -m pip install -q -r seeds/requirements.txt
+.venv-cicheck/Scripts/python.exe -m pip install -q -r dashboard/requirements.txt -r dashboard/requirements-dev.txt
+.venv-cicheck/Scripts/python.exe -m pip check
 ```
 
-Expected: resolution succeeds. **A conflict here is the `streamlit`/`starlette` clash** — take the three-jobs route described in Step 2 rather than changing a pin.
+Expected: `No broken requirements found.` **A conflict here is the `streamlit`/`starlette` clash** — take the three-jobs route from Step 2 rather than changing a pin. Delete `.venv-cicheck` afterwards; it is scratch.
 
-- [ ] **Step 5: Commit**
+Add `pip check` as a CI step after the sub-dependency install too, so an inconsistent environment fails loudly instead of passing three green installs.
+
+- [x] **Step 5: Commit**
 
 ```bash
 git add .gitea/workflows/ci.yml
-git add -A seeds/.gitea dashboard/.gitea
 git commit -s -m "ci: single workflow running backend, seeds and dashboard suites"
 ```
+
+⚠️ **Do not add `git add -A seeds/.gitea dashboard/.gitea`.** Step 1's `git rm` already staged those deletions *and* removed the directories, so the pathspec matches nothing and git aborts with `fatal: pathspec … did not match any files` (exit 128).
 
 ---
 
@@ -459,41 +567,62 @@ git commit -s -m "ci: single workflow running backend, seeds and dashboard suite
 - Modify: `ruff.toml` (only if genuinely needed)
 - Modify: source files under `seeds/` or `dashboard/` (only for real findings)
 
-- [ ] **Step 1: Run ruff across everything**
+- [x] **Step 0: 🔴 Install the tools — they are not present**
+
+Neither `ruff` nor `bandit` is installed, and this venv has no `pip` either (`uv venv` was run without `--seed`). CI installs them at runtime; nothing ever does so locally, so **every command in this task and in Task 10 Step 1 fails without this step.**
 
 ```bash
-.venv/bin/python -m ruff check .
+uv pip install --python .venv/Scripts/python.exe "ruff==0.15.20" "bandit==1.9.4"
+.venv/Scripts/python.exe -m ruff --version
+.venv/Scripts/python.exe -m bandit --version 2>&1 | head -1
+```
+
+Expected: both report a version. **Pin the same versions CI pins** — an unpinned local run does not predict the CI result. (`uv` is on PATH.)
+
+- [x] **Step 1: Run ruff across everything**
+
+```bash
+.venv/Scripts/python.exe -m ruff check .
 ```
 
 Expected: either clean, or findings confined to `seeds/` and `dashboard/`.
 
-- [ ] **Step 2: Resolve findings — fix code first**
+- [x] **Step 2: Resolve findings — fix code first**
 
 Fix real issues in the code. Only widen `ruff.toml` when a rule is genuinely inapplicable to a sub-project, and add a comment saying why. **Do not blanket-exclude `seeds/` or `dashboard/`** — that silently drops them from linting forever, which is the opposite of what merging them was for.
 
-- [ ] **Step 3: Run bandit over the new directories**
+- [x] **Step 3: Run bandit over the new directories**
 
 The existing backend invocation is `bandit -r app scripts -q -s B608`. Scan the new code with the sub-projects' own exclusions:
 
 ```bash
-.venv/bin/python -m bandit -r seeds dashboard -x ./seeds/tests,./seeds/docs,./dashboard/tests -q
+.venv/Scripts/python.exe -m bandit -r seeds dashboard -x ./seeds/tests,./seeds/docs,./dashboard/tests -q
 ```
 
 Expected: no findings. Both sub-projects had a clean bandit baseline before the merge, so **any finding here means the exclusions moved, not that new insecure code appeared** — check the paths before changing code.
 
-- [ ] **Step 4: Update the CI lint step to match**
+- [x] **Step 4: Update the CI lint step to match**
 
-Edit the `Lint + security scan` step in `.gitea/workflows/ci.yml` so the bandit invocation covers the new directories with the exclusions proven in Step 3.
+Edit the `Lint + security scan` step in `.gitea/workflows/ci.yml` so bandit covers the new directories with the exclusions proven in Step 3.
 
-- [ ] **Step 5: Re-run everything**
+🔒 **Use a second, separate bandit invocation — do not merge the targets into the existing one.** The backend call carries `-s B608`, a skip documented as *individually verified* for backend asyncpg SQL only. Folding `seeds dashboard` into that call silently extends the skip to code nobody audited for it:
+
+```yaml
+          .venv/bin/python -m bandit -r app scripts -q -s B608
+          .venv/bin/python -m bandit -r seeds dashboard -x ./seeds/tests,./dashboard/tests -q
+```
+
+(Note `./seeds/docs` is not excluded — `find seeds/docs -type f` finds only `.md` files, so the exclusion would be inert.)
+
+- [x] **Step 5: Re-run everything**
 
 ```bash
-.venv/bin/python -m ruff check . && ./scripts/run_all_tests.sh
+.venv/Scripts/python.exe -m ruff check . && ./scripts/run_all_tests.sh
 ```
 
 Expected: ruff clean, all three suites pass with baseline counts.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add -A
@@ -507,59 +636,92 @@ git commit -s -m "chore(lint): extend ruff and bandit coverage across the merged
 The root README describes a single-project repository that no longer exists.
 
 **Files:**
-- Modify: `README.md` — the `## Repo layout` section and the test instructions
+- Modify: `README.md` — the `## Repo layout` section, the test instructions, `README.md:5`, and the `## CI` section
+- Modify: `seeds/README.md` — stale clone instructions, the dead CI reference, and a **wrong** hardcoded test count
+- Modify: `dashboard/README.md` — same three classes of problem
 
-- [ ] **Step 1: Add `seeds/` and `dashboard/` to the repo-layout section**
+⚠️ The original version of this task scoped only the root `README.md`, while its own Step 3 grep surfaces problems in the two sub-READMEs. Fixing them would then leave the tree dirty and fail Task 10's clean-tree check; not fixing them ships instructions to clone repositories that no longer exist independently.
+
+- [x] **Step 1: Add `seeds/` and `dashboard/` to the repo-layout section**
 
 Describe each in one line: `seeds/` is the seed agent runtime (optional), `dashboard/` is the operator UI bound to `127.0.0.1`.
 
-- [ ] **Step 2: Correct the test instructions**
+- [x] **Step 2: Correct the test instructions**
 
 The current quickstart implies `pytest` runs the suite. State plainly that a bare `pytest` covers the backend only, and that `./scripts/run_all_tests.sh` runs all three.
 
 **Do not restore a hardcoded expected test count.** It was deliberately removed on 2026-07-31 because the suite was not reproducible, and re-adding one recreates a claim the repo has to keep true by hand.
 
-- [ ] **Step 3: Verify no stale cross-repo clone instructions remain**
+- [x] **Step 3: Fix the three known stale claims in the sub-READMEs**
 
-```bash
-grep -rniE 'conclave-seeds|conclave-dashboard|clone .*seeds' README.md seeds/README.md dashboard/README.md
+These are confirmed present, not hypothetical:
+
+```
+README.md:5             "Sibling repos: `conclave-seeds` …, `conclave-dashboard` …"   <- now false
+README.md ## CI         "runs the full suite on every push"                            <- now three suites
+dashboard/README.md:13  git clone <repo-url> conclave-dashboard                        <- repo no longer exists
+dashboard/README.md:39  ".gitea/workflows/ci.yml runs the suite"                        <- Task 7 deletes that file
+seeds/README.md:116     ".gitea/workflows/ci.yml runs the suite"                        <- same
+seeds/README.md:111     "# expect 59 passed"                                            <- ACTUAL COUNT IS 65
 ```
 
-Expected: no instruction telling a reader to clone a now-merged repository. Historical references in prose are fine; clone commands are not.
+The `expect 59 passed` line is both a hardcoded count (banned by Step 2's own rule) **and already wrong** — the seeds suite reports 65. Remove it rather than correcting it. `dashboard/README.md:19`'s `expect 4 passed` is currently accurate but goes for the same reason.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Verify no stale cross-repo instructions remain**
 
 ```bash
-git add README.md
-git commit -s -m "docs: README describes the merged repository layout"
+grep -rniE 'conclave-seeds|conclave-dashboard|clone .*(seeds|dashboard)|expect [0-9]+ passed|\.gitea/workflows' README.md seeds/README.md dashboard/README.md
+echo "exit=$?  (1 = clean)"
+```
+
+Expected: no clone command, no hardcoded count, no reference to a deleted workflow. Historical prose references are fine; instructions are not.
+
+- [x] **Step 5: Commit**
+
+```bash
+git add README.md seeds/README.md dashboard/README.md
+git commit -s -m "docs: READMEs describe the merged repository layout"
 ```
 
 ---
 
 ### Task 10: Final verification and push
 
-- [ ] **Step 1: Full verification from a clean tree**
+- [x] **Step 0: Commit the plan file itself**
+
+This plan is a tracked file and its header asks you to tick checkboxes as you go, so by now the tree is dirty through no fault of the code. No earlier task commits it, and Step 1 expects a clean tree. (Task 8's `git add -A` would otherwise sweep it in under a `chore(lint)` message — an accident, not a decision.)
+
+```bash
+git add docs/superpowers/plans/2026-08-02-monorepo-merge.md
+git commit -s -m "docs(plan): tick off completed monorepo-merge tasks"
+```
+
+- [x] **Step 1: Full verification from a clean tree**
 
 ```bash
 cd /f/ObsidianAI/conclave
 git status --porcelain
 ./scripts/run_all_tests.sh
-.venv/bin/python -m ruff check .
+.venv/Scripts/python.exe -m ruff check .
 ```
 
-Expected: clean tree, three passing suites at baseline counts, ruff clean.
+Expected: clean tree, three passing suites at baseline counts (**575 / 65 / 4**), ruff clean. `ruff` exists only if Task 8 Step 0 ran — if this errors with `No module named ruff`, that step was skipped.
 
-- [ ] **Step 2: Confirm both histories survived**
+- [x] **Step 2: Confirm both histories survived**
+
+Path-limited log is the wrong tool here (see Task 3 Step 3), and by this point `HEAD^2` no longer refers to a subtree merge.
+
+⚠️ **`git cat-file -e` is also wrong — it is an existence check, not a reachability check.** It returns 0 for any object in the object database whether reachable or not, and Tasks 2/3 Step 1 *fetch the source objects into the ODB before the merge* — so it would print "reachable" even after a `--squash`, the exact failure it was supposed to catch. Proven: an object `git fsck` reports as unreachable passes `cat-file -e` and correctly fails `merge-base --is-ancestor`.
 
 ```bash
-echo "seeds:     $(git log --oneline -- seeds/ | wc -l) commits"
-echo "dashboard: $(git log --oneline -- dashboard/ | wc -l) commits"
-echo "total:     $(git log --oneline | wc -l) commits"
+git merge-base --is-ancestor 25dde89 HEAD && echo "seeds history reachable"
+git merge-base --is-ancestor 440da2c HEAD && echo "dashboard history reachable"
+echo "total: $(git log --oneline | wc -l) commits"
 ```
 
-Expected: roughly 27, 10, and a total well above the pre-merge 149.
+Expected: both lines print, and the total is **205** (pre-merge on this branch was **154**, not 149 — 154 + 35 seeds + 13 dashboard + 2 merge commits + plan-doc commits). `25dde89` and `440da2c` are the source tips at merge time. **`440da2c`, not `d6781c5`** — `d6781c5` is one commit *behind* the dashboard tip and would still pass, verifying nothing.
 
-- [ ] **Step 3: Confirm no secrets came across**
+- [x] **Step 3: Confirm no secrets came across**
 
 ```bash
 git ls-files | grep -iE '(^|/)\.env$|\.env\.(local|production)$|\.key$|\.pem$|REVIEW\.md$' || echo "clean — no secret-shaped files tracked"
@@ -567,17 +729,19 @@ git ls-files | grep -iE '(^|/)\.env$|\.env\.(local|production)$|\.key$|\.pem$|RE
 
 Expected: `clean — …`. The subtrees brought their own `.gitignore` files, but a file already *tracked* in a source repo would arrive tracked regardless of any ignore rule.
 
-- [ ] **Step 4: Push**
+- [x] **Step 4: Push**
 
-Must source the shared ssh-agent in the same shell — a fresh shell has no `SSH_AUTH_SOCK`:
+Push **the branch**, not `master`. Must source the shared ssh-agent in the same shell — a fresh shell has no `SSH_AUTH_SOCK`:
 
 ```bash
-. /c/Users/white/.ssh/agent.env && git -C /f/ObsidianAI/conclave push origin master
+. /c/Users/white/.ssh/agent.env && git -C /f/ObsidianAI/conclave push -u origin feat/monorepo-merge
 ```
 
-Expected: the push succeeds. If it reports `Permission denied (publickey)`, the agent has no key loaded — Justin must run `ssh-add ~/.ssh/id_ed25519` **in Git Bash**.
+Expected: the push succeeds and the branch is tracked. If it reports `Permission denied (publickey)`, the agent has no key loaded — Justin must run `ssh-add ~/.ssh/id_ed25519` **in Git Bash**.
 
-- [ ] **Step 5: Confirm CI went green**
+**Do not merge to `master` in this plan.** Merging is a decision for Justin once CI is green on the branch — see `superpowers:finishing-a-development-branch`.
+
+- [x] **Step 5: Confirm CI went green**
 
 Check the Gitea Actions run for the pushed commit. **Do not proceed to Plan B until it is green** — that is the whole reason the merge is sequenced first.
 

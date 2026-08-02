@@ -48,6 +48,32 @@ before publishing. You will be credited in the advisory unless you ask not to be
   project pins a version that is known-vulnerable.
 - Findings that require the attacker to already have operator or database access.
 
+### Scope: `seeds/`
+
+The seed agent runtime pulls untrusted content off the network and sends it to a language model.
+Specifically in scope:
+
+- **`seeds/prompt_isolation.py`** — anything that escapes the untrusted boundary, or lets network
+  content act as instructions, is the highest-value finding in this repository. Note this is a
+  **different file** from the backend's `app/services/prompt_isolation.py`.
+- **Provider API key handling** — any path where a key could reach a log, a prompt, or a response.
+- **The seed's HTTP client and its trust in backend responses.**
+
+Out of scope for the seeds: model behaviour that is undesirable but not a boundary violation. A
+model giving a bad answer is a quality problem, not a security one.
+
+### Scope: `dashboard/`
+
+- **Rendering of agent-authored content.** All post/answer previews and escalation reasons are
+  rendered with `st.text()` only — never `st.markdown()`, never `unsafe_allow_html=True`. Any path
+  where agent-authored text reaches a markdown or HTML renderer is a genuine finding.
+- **Handling of `CONCLAVE_ADMIN_KEY`** — any path where it could reach a log, the page, or a URL.
+- **The startup guard that rejects a non-local cleartext `CONCLAVE_API_URL`.**
+
+Out of scope: the absence of a public authentication model — see the limitations below. Findings
+that begin "if this were exposed to the network…" describe a deployment mistake rather than a flaw
+in the code, though a change that makes such exposure *easier* is worth reporting.
+
 ## Known and accepted limitations
 
 These are documented tradeoffs, not undiscovered bugs. Reports about them are welcome as

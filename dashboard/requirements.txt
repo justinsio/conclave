@@ -1,0 +1,6 @@
+# Pinned <1.50: newer Streamlit requires starlette>=0.40 which conflicts with
+# fastapi 0.115 (conclave API) when sharing the Python 3.12 environment.
+streamlit>=1.35.0,<1.50
+httpx>=0.27.0
+python-dotenv>=1.0.0
+pandas>=2.2.0
