@@ -10,6 +10,29 @@
 
 ---
 
+> [!danger] 🛑 DO NOT EXECUTE — cold-reader audit 2026-08-02 found 8 criticals. Revision required.
+> Every finding below was **independently re-verified** before being recorded here.
+>
+> **🔴 BLOCKER — Docker is not installed on the dev machine.** Not on `PATH` in Git Bash or PowerShell; WSL is absent; no Docker service; no podman. **Tasks 1, 2, 3, 5 and 7 cannot run at all.** This needs a decision before anything else: install Docker Desktop (requires WSL2), or do the compose work on a Linux guest — which Task 7 needs anyway.
+>
+> **🔴 C1 — Task 2 Step 1 breaks the application on every dev machine and the production host.** Adding `POSTGRES_PASSWORD` to `.env` makes `app.config` unimportable: `Settings` is `extra='forbid'`, so `settings = Settings()` at module scope raises `extra_forbidden`. Verified: `pydantic_core.ValidationError: postgres_password — Extra inputs are not permitted`. **The plan cites `extra='forbid'` two lines above the change that violates it.** Blast radius includes `./scripts/run_all_tests.sh` (the plan's own verification step) and the systemd box via `EnvironmentFile`. **CI would stay green** — the runner never creates a `.env`. Fix: declare `postgres_password: str = ""` in `Settings`, or keep it out of `.env` entirely.
+>
+> **🔴 C2 — the "fails closed" security claim is false, in the spec and repeated here.** `preflight.py:22` is `if settings.environment != "production": return`, and `.env.example:6` ships `ENVIRONMENT=dev` — the preflight is a **no-op on the documented default path**. Even in production it rejects only the literal `dev-admin-key`, while `.env.example:14` ships `ADMIN_API_KEY=change-me-to-a-strong-secret`, a repo-published constant nothing rejects. A stranger following `cp .env.example .env && docker compose up -d` runs an admin surface — including key minting — on a publicly known key. **Also:** `ENVIRONMENT=production` additionally hard-fails on an empty `anthropic_api_key`, so it is **unbootable for the bring-your-own-LLM user this phase targets.** Neither value works; the plan must resolve which one DEPLOY.md tells people to use.
+>
+> **🔴 C3 — Task 3 cannot pass, for three independent reasons.** (a) `dashboard/api_client.py:37` runs `_validate_api_base` at **import** and raises on `http://api:8000` (host `api` is neither localhost nor https) — the container dies instantly. (b) `dashboard/.streamlit/config.toml` sets `address = "127.0.0.1"`, which inside a container binds container-loopback and is unreachable through the published port; the plan reasons this out correctly for `api` and then fails to apply it to the dashboard. (c) `${SEED_GENERAL_KEY:?…}` on a variable defined in **neither** root `.env` nor `.env.example` aborts *every* compose invocation — including the default `docker compose up` — because interpolation happens before profile filtering.
+>
+> **🔴 C4 — secrets handed to the wrong containers.** `env_file: .env` gives the seed and dashboard the backend's `ADMIN_API_KEY`, `ANTHROPIC_API_KEY`, `TELEGRAM_BOT_TOKEN` and the Postgres password. The seed is the component that ingests untrusted network content and drives an LLM. It also contradicts the spec's own split-deployment claim that a seed's only coupling is `CONCLAVE_API_URL`. Additionally there is **no `.dockerignore` in `seeds/` or `dashboard/`**, whose Dockerfiles use `COPY . .` — the root one protects the context that needed it least.
+>
+> **🔴 C5 — the placeholder credentials pass every guard.** `${POSTGRES_PASSWORD:?}` fires only on unset/empty, so `change-me-before-first-boot` sails through, as does the existing `ADMIN_API_KEY` placeholder. The stack boots green on a fresh box with two repo-published secrets.
+>
+> **🔴 C6 — three of the four verification steps cannot detect what they claim.** Task 2 Step 6 "proves migrations don't re-run" by **running them** (use `--dry-run`, which already exists at `apply_migrations.py:73`). Task 2 Step 5 "proves ordering" with two commands executed after everything settles — identical output whether ordering held or not. Task 5 Step 3 "proves the smoke test can fail" by stopping `db` and then using `docker compose run`, which **restarts `db` via the dependency graph** (needs `--no-deps`). Same class of mistake as Plan A's, which is not acceptable twice.
+>
+> **🟠 Also:** no upgrade path — `docker compose up -d --build` recreates `migrate` while the **old `api` is still writing**, which `deploy/conclave.service` documents as corrupting data *forever*. `OLLAMA_BASE_URL` still points each container at itself and no task fixes it despite the spec listing it. A `/` or `+` in a generated password corrupts the interpolated `DATABASE_URL`. The dashboard reads `CONCLAVE_ADMIN_KEY` while the backend defines `ADMIN_API_KEY` — nothing bridges them. `seeds/docker-compose.yml` still defines all four seeds, a second live topology the plan edits underneath without retiring.
+>
+> **What the audit confirmed as correct:** every environment fact (`ADMIN_API_KEY` at `config.py:59`, `/health` at `main.py:167`, 32 `.env.example` vars, pgcrypto at `000_base_schema.sql:13`, nine background workers, `seeds/client.py:10`), the `ADMIN_API_KEY`-vs-`ADMIN_KEY` correction of the spec, `restart: "no"` on the one-shot migrate, `env_file`/`environment` precedence, `${VAR:?}` semantics, the non-root image, and loopback publishing.
+
+---
+
 ## Prerequisite
 
 Plan A (`2026-08-02-monorepo-merge.md`) is merged to `master` (`37cde6d`) and CI is green. `seeds/` and `dashboard/` exist as subdirectories.
