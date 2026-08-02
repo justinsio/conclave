@@ -131,10 +131,18 @@ Root additionally excludes `.venv`, `.venv-*`, `docs/`, `seeds/`, `dashboard/`, 
 
 ```bash
 docker build -f deploy/Dockerfile -t conclave-api:dev .
-docker run --rm conclave-api:dev sh -c 'ls -a /app | grep -E "^\.env$|^\.git$" && echo LEAK || echo "clean — no .env or .git in the image"'
+docker run --rm conclave-api:dev sh -c '
+  test -d /app        || { echo "FAIL: /app missing — image malformed";      exit 2; }
+  test -f /app/app/main.py || { echo "FAIL: app/main.py missing — COPY wrong"; exit 2; }
+  if ls -a /app | grep -qE "^\.env$|^\.git$"; then echo "LEAK: .env or .git in image"; exit 1; fi
+  echo "clean — /app populated and no .env or .git"
+'
+echo "exit=$?"
 ```
 
-Expected: `clean — …`. **This can fail** — that is the point.
+Expected: `clean — …`, exit 0.
+
+⚠️ **The obvious one-liner here is a check that cannot fail.** `ls -a /app | grep … && echo LEAK || echo clean` prints `clean` when `/app` does not exist at all, because `ls` errors and `grep` matches nothing — a malformed image reads as a passing one. The version above proves the directory is populated *before* concluding anything about what is absent. **Absence of evidence and evidence of absence are different, and only one of them is a test.**
 
 - [ ] **Step 3: `deploy/Dockerfile`** — as in rev 1 (non-root `conclave` uid 10001, explicit `COPY app/ migrations/ scripts/`, `--workers 1` baked in with the nine-background-workers rationale in a comment). Binding `0.0.0.0` inside the container is correct; compose publishes to `127.0.0.1`.
 
