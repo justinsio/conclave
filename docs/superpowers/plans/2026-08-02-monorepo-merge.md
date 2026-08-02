@@ -28,6 +28,14 @@ Verified 2026-08-02:
 
 After the merge, **`tests` and `scripts` are ambiguous top-level names** — both the backend root and `seeds/` provide them. The resolution is *not* to rewrite imports. It is to keep each suite's `pytest.ini` in place and always invoke the sub-suites by directory (`pytest seeds/`), which makes pytest select that directory as rootdir and apply its `pythonpath = .`. Task 4 verifies this empirically rather than trusting the reasoning.
 
+## Environment facts, verified 2026-08-02 before execution
+
+Confirmed by running them on the target machine, not assumed:
+
+- **The interpreter is `.venv/Scripts/python.exe`, not `.venv/bin/python`.** This is a Windows box (Python 3.12.13); `.venv/bin/python` does not exist. The **CI workflow correctly keeps `.venv/bin/python`** because the `homelab` runner is Linux. Every *local* command below uses the Windows path; the only place `bin/python` survives is inside the CI YAML, and that is deliberate. `scripts/run_all_tests.sh` (Task 5) resolves the path at runtime so it works in both.
+- **The backend suite runs here: 575 tests collected.** Postgres is listening on 5432 and `.env` supplies both `DATABASE_URL` and `TEST_DATABASE_URL`. ⚠️ The CI default `postgres:postgres@localhost` **does not** authenticate on this machine — the local credentials come from `.env`. Do not "fix" a connection failure by editing the connection string; the working configuration is already there.
+- **Branch: all work happens on `feat/monorepo-merge`**, never directly on `master`. This matches the repo's existing convention (`feat/self-host-config`, `feat/moderation-v1-content-gate`) and makes the entire merge discardable by deleting one branch.
+
 ## File structure after this plan
 
 ```
@@ -75,7 +83,7 @@ Expected: `0` for all three. A dirty tree makes `git subtree add` refuse.
 ```bash
 {
   echo "=== conclave ==="
-  (cd /f/ObsidianAI/conclave && .venv/bin/python -m pytest -q 2>&1 | tail -3)
+  (cd /f/ObsidianAI/conclave && .venv/Scripts/python.exe -m pytest -q 2>&1 | tail -3)
   echo "=== conclave-seeds ==="
   (cd /f/ObsidianAI/conclave-seeds && python -m pytest -q 2>&1 | tail -3)
   echo "=== conclave-dashboard ==="
@@ -223,7 +231,7 @@ This is the task the collision analysis exists for. **Verify by executing, not b
 - [ ] **Step 1: Backend suite — must be unaffected**
 
 ```bash
-cd /f/ObsidianAI/conclave && .venv/bin/python -m pytest -q 2>&1 | tail -3
+cd /f/ObsidianAI/conclave && .venv/Scripts/python.exe -m pytest -q 2>&1 | tail -3
 ```
 
 Expected: the same passing count as the `conclave` section of `/tmp/premerge-baseline.txt`. `testpaths = tests` in the root `pytest.ini` means a bare `pytest` still collects only backend tests — `seeds/tests` and `dashboard/tests` are not swept in.
@@ -231,7 +239,7 @@ Expected: the same passing count as the `conclave` section of `/tmp/premerge-bas
 - [ ] **Step 2: Seeds suite — the risky one**
 
 ```bash
-cd /f/ObsidianAI/conclave && .venv/bin/python -m pytest seeds/ -q 2>&1 | tail -3
+cd /f/ObsidianAI/conclave && .venv/Scripts/python.exe -m pytest seeds/ -q 2>&1 | tail -3
 ```
 
 Expected: the same count as the `conclave-seeds` baseline.
@@ -241,7 +249,7 @@ Expected: the same count as the `conclave-seeds` baseline.
 **If it fails with `ModuleNotFoundError` or collects the wrong `tests` package**, the rootdir did not resolve as expected. Fix by making it explicit rather than by rewriting imports:
 
 ```bash
-.venv/bin/python -m pytest seeds/ -q -c seeds/pytest.ini --rootdir=seeds
+.venv/Scripts/python.exe -m pytest seeds/ -q -c seeds/pytest.ini --rootdir=seeds
 ```
 
 If that works, record the working invocation — Task 5 and Task 7 must both use it.
@@ -249,7 +257,7 @@ If that works, record the working invocation — Task 5 and Task 7 must both use
 - [ ] **Step 3: Dashboard suite**
 
 ```bash
-cd /f/ObsidianAI/conclave && .venv/bin/python -m pytest dashboard/ -q 2>&1 | tail -3
+cd /f/ObsidianAI/conclave && .venv/Scripts/python.exe -m pytest dashboard/ -q 2>&1 | tail -3
 ```
 
 Expected: the same count as the `conclave-dashboard` baseline. Same fallback as Step 2 if it fails.
@@ -294,7 +302,20 @@ Use the exact invocations proven in Task 4. If Task 4 needed the `-c … --rootd
 # directory. See docs/superpowers/plans/2026-08-02-monorepo-merge.md Task 4.
 set -euo pipefail
 
-PY="${PYTHON:-.venv/bin/python}"
+# The venv layout differs by platform: Windows puts the interpreter in
+# .venv/Scripts/python.exe, Linux (and the CI runner) in .venv/bin/python.
+# Resolve it rather than hardcoding, so the same script works in both places.
+if [ -n "${PYTHON:-}" ]; then
+  PY="$PYTHON"
+elif [ -x .venv/Scripts/python.exe ]; then
+  PY=.venv/Scripts/python.exe
+elif [ -x .venv/bin/python ]; then
+  PY=.venv/bin/python
+else
+  echo "No interpreter found — expected .venv/Scripts/python.exe or .venv/bin/python." >&2
+  echo "Override with PYTHON=/path/to/python" >&2
+  exit 1
+fi
 
 echo "=== backend ==="
 "$PY" -m pytest -q
@@ -426,7 +447,7 @@ Add these steps to the existing `test` job in `.gitea/workflows/ci.yml`, after t
 - [ ] **Step 3: Verify the workflow parses**
 
 ```bash
-.venv/bin/python -c "import yaml,sys; yaml.safe_load(open('.gitea/workflows/ci.yml')); print('YAML OK')"
+.venv/Scripts/python.exe -c "import yaml,sys; yaml.safe_load(open('.gitea/workflows/ci.yml')); print('YAML OK')"
 ```
 
 Expected: `YAML OK`.
@@ -462,7 +483,7 @@ git commit -s -m "ci: single workflow running backend, seeds and dashboard suite
 - [ ] **Step 1: Run ruff across everything**
 
 ```bash
-.venv/bin/python -m ruff check .
+.venv/Scripts/python.exe -m ruff check .
 ```
 
 Expected: either clean, or findings confined to `seeds/` and `dashboard/`.
@@ -476,7 +497,7 @@ Fix real issues in the code. Only widen `ruff.toml` when a rule is genuinely ina
 The existing backend invocation is `bandit -r app scripts -q -s B608`. Scan the new code with the sub-projects' own exclusions:
 
 ```bash
-.venv/bin/python -m bandit -r seeds dashboard -x ./seeds/tests,./seeds/docs,./dashboard/tests -q
+.venv/Scripts/python.exe -m bandit -r seeds dashboard -x ./seeds/tests,./seeds/docs,./dashboard/tests -q
 ```
 
 Expected: no findings. Both sub-projects had a clean bandit baseline before the merge, so **any finding here means the exclusions moved, not that new insecure code appeared** — check the paths before changing code.
@@ -488,7 +509,7 @@ Edit the `Lint + security scan` step in `.gitea/workflows/ci.yml` so the bandit 
 - [ ] **Step 5: Re-run everything**
 
 ```bash
-.venv/bin/python -m ruff check . && ./scripts/run_all_tests.sh
+.venv/Scripts/python.exe -m ruff check . && ./scripts/run_all_tests.sh
 ```
 
 Expected: ruff clean, all three suites pass with baseline counts.
@@ -544,7 +565,7 @@ git commit -s -m "docs: README describes the merged repository layout"
 cd /f/ObsidianAI/conclave
 git status --porcelain
 ./scripts/run_all_tests.sh
-.venv/bin/python -m ruff check .
+.venv/Scripts/python.exe -m ruff check .
 ```
 
 Expected: clean tree, three passing suites at baseline counts, ruff clean.
@@ -569,13 +590,15 @@ Expected: `clean — …`. The subtrees brought their own `.gitignore` files, bu
 
 - [ ] **Step 4: Push**
 
-Must source the shared ssh-agent in the same shell — a fresh shell has no `SSH_AUTH_SOCK`:
+Push **the branch**, not `master`. Must source the shared ssh-agent in the same shell — a fresh shell has no `SSH_AUTH_SOCK`:
 
 ```bash
-. /c/Users/white/.ssh/agent.env && git -C /f/ObsidianAI/conclave push origin master
+. /c/Users/white/.ssh/agent.env && git -C /f/ObsidianAI/conclave push -u origin feat/monorepo-merge
 ```
 
-Expected: the push succeeds. If it reports `Permission denied (publickey)`, the agent has no key loaded — Justin must run `ssh-add ~/.ssh/id_ed25519` **in Git Bash**.
+Expected: the push succeeds and the branch is tracked. If it reports `Permission denied (publickey)`, the agent has no key loaded — Justin must run `ssh-add ~/.ssh/id_ed25519` **in Git Bash**.
+
+**Do not merge to `master` in this plan.** Merging is a decision for Justin once CI is green on the branch — see `superpowers:finishing-a-development-branch`.
 
 - [ ] **Step 5: Confirm CI went green**
 
