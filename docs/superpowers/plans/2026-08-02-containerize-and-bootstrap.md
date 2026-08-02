@@ -1,4 +1,4 @@
-# Containerize & Bootstrap Implementation Plan — **revision 2**
+# Containerize & Bootstrap Implementation Plan — **revision 3**
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -10,7 +10,14 @@
 
 ---
 
-> [!danger] 🛑 REV 2 IS ALSO NOT SAFE TO EXECUTE — re-audit 2026-08-02 found 4 CRITICAL + 13 IMPORTANT
+> [!note] 📋 Revision 3 — written against the rev-2 re-audit. **Not yet re-audited.**
+> Rev 2 was audited and came back with 4 criticals + 13 importants; **three of the eight rev-1 criticals were not actually closed, and one rev-2 "fix" created a worse hole than the defect it replaced.** Rev 3 addresses all of them. SEC-1 was fixed separately in code first (`fa0411c`) rather than deferred into this plan.
+>
+> 🔑 **The lesson that produced rev 3: a fix is unaudited code.** Rev 2 declared "every verification step must be able to fail" and then shipped one that couldn't (Task 2 Step 6), plus a security regression (Task 0 Step 3). **Audit the corrections, not just the original.**
+>
+> The full rev-2 findings are preserved below because several are live constraints, not historical notes.
+
+> [!warning] 🛑 REV 2 findings — the record (all fixed in rev 3 unless marked)
 > **Three of the eight rev-1 criticals are not actually closed, and one rev-2 "fix" created a worse hole than the defect it replaced.** A rev 3 is required. All four criticals below were independently re-verified.
 >
 > ### 🔴🔴 SEC-1 — a LIVE VULNERABILITY in shipped code, not a plan defect
@@ -88,7 +95,25 @@ Three of the audit's criticals are not plan bugs; they are unmade decisions. Wri
 
 **Files:** `app/config.py`, `app/services/preflight.py`, `.env.example`
 
-- [ ] **Step 1: 🔴 Declare `postgres_password` in `Settings`, and prove the failure first**
+> [!success] ✅ SEC-1 FIXED 2026-08-02, `fa0411c` — before any of this
+> `require_admin` now rejects an empty or whitespace-only configured key **before** parsing the credential, in every environment. 4 tests written first and confirmed red (3 of 4), green after; suite 575 → **579**, no regressions; the exploit reproduced directly and now returns 403. **Task 0 must not undo this** — do **not** ship `ADMIN_API_KEY=` empty on the assumption a guard will catch it. The compose-interpolation guard never applied to that variable; it arrives via `env_file`.
+
+- [ ] **Step 1: 🔴 Declare EVERY compose-only key in `Settings` — not just `postgres_password`**
+
+⚠️ **Rev 2 declared one field and then added `SEED_GENERAL_KEY` to `.env.example` in Task 3, reintroducing the exact defect.** pydantic-settings **skips empty undeclared dotenv keys**, so it ships green and CI stays green — then breaks the instant an operator fills it in, which is the only reason the variable exists. Declare all of them here, in one place:
+
+```python
+postgres_password: str = ""      # compose-only; unused by the app
+seed_coding_key: str = ""        # compose-only; passed through to the seed containers
+seed_research_key: str = ""
+seed_creative_key: str = ""
+seed_general_key: str = ""
+conclave_admin_key: str = ""     # compose-only; the dashboard's name for ADMIN_API_KEY
+```
+
+🔒 **The test for this must use a NON-EMPTY value.** A test that writes an empty key passes vacuously, because empty undeclared keys are skipped — it would prove nothing and hide the bug it was written for.
+
+- [ ] **Step 1b: Prove the failure first**
 
 Reproduce the break before fixing it — a fix you have not seen fail is not verified:
 
@@ -118,9 +143,21 @@ The audit found the spec's "an operator who ignores the instructions fails close
 
 This is find #10 in the recurring pattern: **controls written for a public multi-tenant service, inapplicable to a private team network** where the operator controls every agent.
 
-✅ **DECIDED 2026-08-02 (Justin): make each hard control coherent with what it protects.** Require the moderation provider key **only when `moderation_gate_enabled` is true**, not unconditionally. A private team that trusts its own agents runs with the gate off — a legitimate, now-supported posture. A public-facing instance still cannot. The other production controls (placeholder admin key, rate limiting) stay unconditional.
+✅ **DECIDED — but rev 2 only resolved ONE of the five controls. All five are settled here.**
 
-⚠️ **This changes security posture — amend the design spec with it, do not leave it living only in this plan.**
+`preflight.py` hard-fails production on five things. Each now has a stated disposition:
+
+| Line | Control | Disposition |
+|---|---|---|
+| 26 | admin key unset or `dev-admin-key` | **Stays a hard failure**, and the rejected set widens to include `change-me-to-a-strong-secret` and any other shipped placeholder. Empty is now *also* caught at request time by SEC-1's fix. |
+| 30 | `moderation_gate_enabled` false | 🔄 **Becomes a WARNING, not a failure.** Rev 2's own decision says *"a private team that trusts its own agents runs with the gate off — a legitimate, now-supported posture"*, and a hard failure here makes that posture **impossible**. `warn_self_host_posture` (`preflight.py:64`) already exists and already does exactly this — move it there. |
+| 33 | `rate_limit_enabled` false | **Stays a hard failure.** It protects against runaway cost and abuse regardless of who the agents are, and costs a self-hoster nothing to leave on. |
+| 34 | `anthropic_api_key` empty | 🔄 **Required only when the gate is enabled.** Unconditionally requiring it makes production unbootable for the bring-your-own-LLM user this phase targets. |
+| 38 | `trusted_proxy_ips` empty | 🔄 **Required only when a proxy is declared.** A LAN self-hoster with no reverse proxy has none, and hard-failing on it blocks the default topology. |
+
+✅ **`.env.example` ships `ENVIRONMENT=production`.** Rev 2 never named the value, while Tasks 6 and 7 both depend on it. Shipping `dev` means the admin-key and rate-limit guards never run on the documented path — which is how SEC-1 stayed reachable. With the four dispositions above, `production` becomes bootable for the target user, so it is the correct default and the guards actually fire.
+
+⚠️ **This changes security posture — the design spec has been amended (`5dc36ab`); keep it in sync if any of the five change again.**
 
 #### ✅ Also decided: the gate suggests a provider, it does not force one
 
@@ -137,9 +174,17 @@ Justin's question — must a self-hoster buy Anthropic, or could they use Grok? 
 
 **Not building the provider abstraction now** — the feature queue is closed, and MCP and the portal are deferred on the same reasoning. Document the seam and the three couplings above; build it post-publish only if a real user asks.
 
-- [ ] **Step 3: Reject placeholder credentials, not one literal string**
+- [ ] **Step 3: Reject placeholder credentials as a SET — and do NOT ship the admin key empty**
 
-`preflight.py:26` rejects only `dev-admin-key`, while `.env.example:14` ships `ADMIN_API_KEY=change-me-to-a-strong-secret` — a repo-published constant that passes. Reject a **set** of known placeholders, and make `.env.example` ship `ADMIN_API_KEY=` and `POSTGRES_PASSWORD=` **empty**, so `${VAR:?}` and the preflight both actually fire.
+`preflight.py:26` rejects only `dev-admin-key`, while `.env.example:14` ships `ADMIN_API_KEY=change-me-to-a-strong-secret` — a repo-published constant that passes every guard. Widen to a set of known placeholders.
+
+🔴 **Rev 2 proposed shipping `ADMIN_API_KEY=` empty "so `${VAR:?}` and the preflight both actually fire." Both halves were wrong:**
+- `${VAR:?}` is a **compose interpolation** guard. `ADMIN_API_KEY` reaches the app through `env_file`, never interpolation, so it would never have fired.
+- Empty was, at that moment, the **most dangerous** possible value — `Authorization: Admin ` was full admin. Fixed in `fa0411c`, but the lesson stands: **do not make a credential empty by default and rely on a downstream guard.**
+
+**`.env.example` ships `ADMIN_API_KEY=change-me-to-a-strong-secret`** (a placeholder the widened set now rejects at boot under the `production` default from Step 2). **`POSTGRES_PASSWORD=` ships empty** — that one *is* consumed by compose interpolation, so `${POSTGRES_PASSWORD:?}` genuinely fires.
+
+🔑 **The distinction to carry forward: a guard only protects the path it is actually on.** Verify which mechanism reads a variable before relying on a guard attached to a different one.
 
 - [ ] **Step 4: Write the failing tests first**, then implement. Run `./scripts/run_all_tests.sh` — expected 575/65/4 plus the new cases.
 
@@ -188,6 +233,19 @@ Expected: `clean — …`, exit 0.
 
 ⚠️ **The obvious one-liner here is a check that cannot fail.** `ls -a /app | grep … && echo LEAK || echo clean` prints `clean` when `/app` does not exist at all, because `ls` errors and `grep` matches nothing — a malformed image reads as a passing one. The version above proves the directory is populated *before* concluding anything about what is absent. **Absence of evidence and evidence of absence are different, and only one of them is a test.**
 
+🔴 **Run this probe against ALL THREE images, not just the API one.** Rev 2 probed only `conclave-api:dev` — whose Dockerfile uses explicit `COPY app/ migrations/ scripts/` and was never the risk. **`seeds/Dockerfile` is `COPY . .`** (8 lines, line 5), which is the context the C4 fix exists for and the one rev 2 never exercised.
+
+And **create a real `seeds/.env` in the tree first**, so the check has something to catch — otherwise it passes because nothing was there, not because the ignore worked:
+
+```bash
+printf 'LLM_API_KEY=probe-should-never-ship\n' > seeds/.env   # scratch; delete after
+docker build -t conclave-seed:probe ./seeds
+docker run --rm conclave-seed:probe sh -c 'find / -name ".env" -not -path "/proc/*" 2>/dev/null | head -3'
+rm -f seeds/.env
+```
+
+Expected: **no output** from the `find`. Use `find`, not a top-level `ls` — a nested `.env` one directory down is exactly what a `COPY . .` drags in and what a top-level listing misses.
+
 - [ ] **Step 3: `deploy/Dockerfile`** — as in rev 1 (non-root `conclave` uid 10001, explicit `COPY app/ migrations/ scripts/`, `--workers 1` baked in with the nine-background-workers rationale in a comment). Binding `0.0.0.0` inside the container is correct; compose publishes to `127.0.0.1`.
 
 - [ ] **Step 4: `dashboard/Dockerfile`** — non-root, and **it must override the Streamlit bind address**:
@@ -215,16 +273,28 @@ docker run --rm conclave-api:dev python -c "import app.main; print('api imports 
 
 - [ ] **Step 1: `.env.example` gains `POSTGRES_PASSWORD=` (empty)** — empty, so `${POSTGRES_PASSWORD:?}` fires. Do not reorder or remove existing keys (`extra='forbid'`).
 
-- [ ] **Step 2: Write `compose.yaml`** — `db` (Postgres pinned to a minor tag, named volume, `pg_isready` healthcheck, no published ports), `migrate` (one-shot, `restart: "no"`, `command: ["python","scripts/apply_migrations.py"]`, waits on `db` healthy), `api` (waits on `migrate` `service_completed_successfully`, publishes `127.0.0.1:8000:8000`, `/health` healthcheck).
+- [ ] **Step 2: Write `compose.yaml`** — `db`, `migrate`, `api`.
+
+🔴 **`db` MUST set `POSTGRES_USER=conclave` and `POSTGRES_DB=conclave`.** The DSN below is `postgresql://conclave:…@db:5432/conclave`, but the official image with only `POSTGRES_PASSWORD` set creates role **`postgres`** and database **`postgres`** — role `conclave` would not exist and `migrate` would fail. **And bare `pg_isready` returns 0 as soon as the server accepts connections regardless of roles**, so the healthcheck goes *green* while the dependent fails — a gate that reports success for a broken state. Use `pg_isready -U conclave -d conclave` with a `start_period`.
+
+🔴 **`api` and `migrate` must both carry an explicit `environment: DATABASE_URL:` that overrides the file.** They need `env_file: .env` for the other ~30 settings, and `.env.example:9` ships `DATABASE_URL=…@localhost:5432/…` — which inside a container is the container itself. Without the explicit override the API silently points at its own loopback. *(The spec says `.env.example` "gains a `DATABASE_URL` pointing at the db service"; this plan instead interpolates it in compose and leaves the file's value as the systemd path. **State that in a comment**, or the next reader implements the other one.)*
+
+Otherwise: `db` pinned to a minor tag, named volume, no published ports · `migrate` one-shot, `restart: "no"`, `command: ["python","scripts/apply_migrations.py"]`, waits on `db` healthy · `api` waits on `migrate` `service_completed_successfully`, publishes `127.0.0.1:8000:8000`, `/health` healthcheck.
 
 ⚠️ **The DSN is string-interpolated** — `postgresql://conclave:${POSTGRES_PASSWORD}@db:5432/conclave`. A `/`, `+` or `@` in a generated password corrupts it. `DEPLOY.md` must specify a URL-safe generator (`openssl rand -hex 32`, not `-base64`).
 
-- [ ] **Step 3: Validate before running**
+- [ ] **Step 3: Validate — AFTER `.env` exists, and assert the failure**
+
+⚠️ **Rev 2 put this before Step 4 created `.env`, so it always failed on a fresh box** — `${POSTGRES_PASSWORD:?}` errors with `required variable POSTGRES_PASSWORD is missing a value`. And `config >/dev/null && echo "config OK"` **prints nothing on failure with the status swallowed** — a silent skip in any script without `set -e`. Both fixed:
 
 ```bash
-docker compose config >/dev/null && echo "config OK"
+test -f .env || { echo "no .env — run Step 4 first"; exit 1; }
+docker compose config >/dev/null || { echo "compose config FAILED"; exit 1; }
+echo "config OK"
 docker compose version
 ```
+
+⚠️ **Never `docker compose config` without redirecting** — it prints resolved secrets in plaintext (`POSTGRES_PASSWORD: …`). Fine locally; a disaster in a CI log.
 
 - [ ] **Step 4: Bring it up from nothing** — `cp -n .env.example .env`, set the password, `docker compose up -d`, `docker compose ps -a`.
 
@@ -234,31 +304,46 @@ Note `ps -a`: without `-a`, the exited `migrate` container **does not appear**, 
 
 Rev 1 ran two commands after everything finished, which print identically whether ordering held or not.
 
+**Run this on a stack brought up fresh** (`docker compose down -v && docker compose up -d`). On a *repeat* `up`, migrate is recreated while api is not, so `FinishedAt` moves past `StartedAt` and you get a false violation. Take exactly one container id each — after Step 6 has run, `ps -aq migrate` returns two.
+
 ```bash
-mig_end=$(docker inspect -f '{{.State.FinishedAt}}' $(docker compose ps -aq migrate))
-api_start=$(docker inspect -f '{{.State.StartedAt}}' $(docker compose ps -aq api))
+mig_id=$(docker compose ps -aq migrate | head -1)
+api_id=$(docker compose ps -aq api | head -1)
+mig_end=$(docker inspect -f '{{.State.FinishedAt}}' "$mig_id")
+api_start=$(docker inspect -f '{{.State.StartedAt}}' "$api_id")
 echo "migrate finished: $mig_end"
 echo "api started:      $api_start"
 python3 -c "
-import sys,datetime as dt
-f=lambda s: dt.datetime.fromisoformat(s.replace('Z','+00:00')[:26]+'+00:00' if 'Z' in s else s)
-m,a=f('$mig_end'),f('$api_start')
-print('ORDERING OK' if a>=m else 'ORDERING VIOLATED — api started before migrate finished')
-sys.exit(0 if a>=m else 1)"
+import sys, datetime as dt
+def f(s):
+    if s.startswith('0001-'):          # Docker's zero value: never started/finished
+        return None
+    return dt.datetime.fromisoformat(s)   # py3.11+ parses Z and any precision natively
+m, a = f('$mig_end'), f('$api_start')
+if m is None or a is None:
+    print('ORDERING UNKNOWN — a container never ran; investigate'); sys.exit(2)
+print('ORDERING OK' if a >= m else 'ORDERING VIOLATED — api started before migrate finished')
+sys.exit(0 if a >= m else 1)"
 ```
 
 Expected: `ORDERING OK`, exit 0. **This fails loudly if `depends_on` is ever removed or mistyped.**
+
+⚠️ Rev 2's parser did `s.replace('Z','+00:00')[:26]+'+00:00'`, which **crashed** on Docker timestamps with fewer than 6 fractional digits (Go trims trailing zeros) and on the `0001-01-01` zero value — so the state you most want to catch, *a container that never started*, produced a traceback instead of a verdict. Python on the VM is 3.11.2, where `fromisoformat` handles both natively.
 
 - [ ] **Step 6: 🔴 Prove migrations do not re-run — with `--dry-run`, never by re-running them**
 
 Rev 1 used `docker compose run --rm migrate`, which *applies* migrations. If the `schema_migrations` recording were broken — the exact failure being tested — that command would re-run every data migration.
 
+⚠️ **Rev 2's version was STILL a check that cannot fail.** `apply_migrations.py` returns 0 on **both** branches — "up to date" (line 50-52) *and* "pending (N): …" (line 55-57). So `echo "exit=$?"` printed `exit=0` whether or not `schema_migrations` recording worked. Assert on the **text**, not the exit code:
+
 ```bash
-docker compose run --rm --no-deps migrate python scripts/apply_migrations.py --dry-run
-echo "exit=$?"
+docker compose run --rm --no-deps migrate python scripts/apply_migrations.py --dry-run \
+  | tee /dev/stderr | grep -q "^up to date" \
+  && echo "PASS: migrations correctly recorded as applied" \
+  || { echo "FAIL: migrations report as PENDING — schema_migrations recording is broken"; exit 1; }
 ```
 
-Expected: reports **all migrations already applied**, exit 0. `--no-deps` stops the dependency graph restarting anything.
+Expected: `PASS: …`. **This fails if recording ever breaks** — which is the entire point. `--no-deps` stops the dependency graph restarting anything.
 
 - [ ] **Step 7: Document the upgrade path — the obvious one corrupts data**
 
@@ -294,10 +379,14 @@ Give each service an **explicit `environment:` block only**, or its own env file
 `dashboard/api_client.py:37` raises at **import** on `http://api:8000` (host `api` is neither localhost nor https), so the container dies instantly. The guard exists because the admin key is sent on every request and cleartext to a non-local host would leak it. Options:
 
 - **(a)** Treat the compose network as trusted and allow a configured in-network host. Weakens a real control.
-- **(b)** Put the dashboard on the api container's network namespace so `http://localhost:8000` is genuinely local and the guard passes unmodified. ⭐ Preserves the control exactly as written.
+- **(b)** Put the dashboard on the api container's network namespace (`network_mode: service:api`) so `http://localhost:8000` is genuinely local and the guard passes unmodified.
 - **(c)** Terminate TLS in-network. Most work, least payoff on a loopback-only tool.
 
-**Recommend (b).** Also bridge the name mismatch: the dashboard reads `CONCLAVE_ADMIN_KEY`, the backend defines `ADMIN_API_KEY` — without that, every admin call returns 401 with an empty `Authorization: Admin ` header.
+✅ **DECIDED: (b)** — it preserves the control exactly as written rather than weakening it.
+
+🔴 **But (b) has a consequence rev 2 did not state, and `docker compose config` CANNOT catch it.** A container using `network_mode: service:api` **cannot declare its own `ports:`** — the daemon rejects that combination at create time, while both `docker compose config` and `docker compose --dry-run up` pass it silently. So **the `8503` publish must move onto the `api` service**, which means port 8503 is published even when the dashboard profile is off. State that explicitly in `compose.yaml`; a reader who sees 8503 on `api` will otherwise "fix" it.
+
+🔒 **Bridge the name mismatch:** the dashboard reads `CONCLAVE_ADMIN_KEY`, the backend defines `ADMIN_API_KEY`. Without it every admin call sends `Authorization: Admin ` — which until `fa0411c` would have *authenticated*, and now correctly returns **403** (not 401; `auth.py:176,180` raises 403).
 
 - [ ] **Step 4: Prove the default `up` starts NO profile**
 
@@ -335,13 +424,29 @@ Expected: `200`. Do **not** use `curl -f` with `-w "%{http_code}"` — `-f` abor
 - ⚠️ **Do NOT add this field to `_reject_zero`.** That validator (`config.py:150`) covers `corpus_quarantine_days`, `corpus_upvote_threshold` and `post_expiry_ttl_days`, where `0` is *destructive*. Here `0` is the **meaningful default**. Reject **negative** values instead — a negative TTL is an already-expired key, which is the actual nonsense case.
 - **Both write sites must change**, not just create. An operator who "extends" a never-expiring key must not thereby give it an expiry.
 
-**Test that must exist:** mint with `AGENT_KEY_TTL_DAYS=0`, assert `key_expires_at IS NULL` in the row **and** that the key still authenticates after a simulated clock advance. A test that only checks the column is NULL would pass even if `auth.py` later started rejecting NULLs.
+🔴 **The SQL is not where this breaks — rev 2 stopped one layer too early.** Three defects the re-audit found, all verified:
+
+1. **`BetaUserCreated.key_expires_at` is `datetime`, not `datetime | None`** (`admin_beta_users.py:40`), and the model is constructed directly in Python at `:96-105`. Writing NULL raises an unhandled `ValidationError` → **500 on every mint under the new default**. `ExtendResponse.key_expires_at` (`:56`) has the same problem. **Both must become `datetime | None`.**
+2. **Extend uses `None` as its row-not-found sentinel** — `new_expiry = await pool.fetchval(...)` then `if new_expiry is None: raise HTTPException(404, "user_not_found")`. Write NULL and a **successful** extend returns 404 *after modifying the row*. **Replace the sentinel with an explicit existence check** (`SELECT 1 FROM agents WHERE user_id = $1`) so "no such user" and "no expiry" stop sharing a representation.
+3. ✏️ **My SQL citation was wrong.** The extend site is `COALESCE(key_expires_at, NOW()) + make_interval(days => $2)` (`:143-144`), **not** bare `make_interval`. That is a *different* trap: `COALESCE(NULL, NOW()) + make_interval(days => 0)` is `NOW()` — extending a never-expiring key by 0 days **expires it immediately**.
+
+⚠️ **"Expected 575/65/4 plus new tests" was false.** Existing tests assert an expiry exists and **will break**: `tests/test_beta_accounts.py:93` (arithmetic on `None` → TypeError), `:144`, `:167`, and `tests/test_admin_audit_log.py:53,66,71`. **Updating them is part of this task, not a surprise during it.** The new baseline is 579 (after `fa0411c`) plus whatever this task adds, minus nothing — if a test disappears rather than being updated, that is a regression in disguise.
+
+**Tests that must exist:** mint with `AGENT_KEY_TTL_DAYS=0` and assert `key_expires_at IS NULL` **and** that the key still authenticates after a simulated clock advance — a test that only checks the column is NULL would pass even if `auth.py` later started rejecting NULLs. Plus: extend a never-expiring key returns **200 with `key_expires_at: null`**, and extending a genuinely missing user still returns 404.
 
 ✅ **DECIDED — `email` becomes optional in the API without a migration.** `users.email` is `VARCHAR NOT NULL UNIQUE` (`migrations/002_public_api_schema.sql:45`), so the column cannot simply be dropped or nulled, and a schema migration is risk this phase does not need. Instead: keep the column, make the request field optional, and **synthesize a deterministic non-routable address when it is absent** — `<agent_name>@local.invalid`. The `.invalid` TLD is reserved by RFC 2606 and can never resolve, so the placeholder cannot accidentally address a real mailbox, and it preserves the `UNIQUE` constraint per agent name.
 
 - [ ] **Step 1: Failing test first** (`tests/test_mint_key_cli.py`).
 - [ ] **Step 2: `scripts/mint_key.py`** — invoked **by path, not `-m`** (`scripts/` is not a package; matches `apply_migrations.py`). Share the minting logic with the HTTP route rather than duplicating it.
-- [ ] **Step 3: Rename the router prefix** to `/internal/admin/agents`; the `beta_users` **table stays**. First run `grep -rn "beta-users" dashboard/ seeds/ tests/` and update every caller.
+- [ ] **Step 3: Rename the router prefix** to `/internal/admin/agents`; the `beta_users` **table stays**.
+
+✏️ **Rev 2's grep searched two directories with zero hits and skipped every real caller.** `dashboard/` and `seeds/` contain **no** references (the dashboard only calls `system-health`, `metrics`, `flags`). Sweep the whole tree instead:
+
+```bash
+grep -rn "beta-users\|beta_users\|admin_beta_users" --include='*.py' --include='*.md' . | grep -v '^./.venv'
+```
+
+Known callers to update: `app/main.py:21,154` · `app/routers/internal/admin_beta_users.py:20` · `tests/test_admin_audit_log.py:53,66,71` · `tests/test_beta_accounts.py` (×8) · `docs/internal/audit-ledger.md:54,139`. **The `beta_users` table name itself must NOT be renamed** — only the route.
 - [ ] **Step 4: `./scripts/run_all_tests.sh`** — expected 575/65/4 plus new tests. Locally; CI is 26 minutes.
 - [ ] **Step 5: Commit**
 
@@ -371,9 +476,26 @@ Expected: `0` then **non-zero**. A smoke test that has never failed has not been
 ### Task 6: `DEPLOY.md`
 
 - [ ] **Step 1: Write it** — prerequisites, `cp .env.example .env`, **which variables must be set before first boot** (`POSTGRES_PASSWORD` and `ADMIN_API_KEY` — note the real name; the spec's `ADMIN_KEY` is wrong), URL-safe password generation, `docker compose up -d`, minting the first key, the smoke test, the two profiles, and **the upgrade sequence from Task 2 Step 7**.
-- [ ] **Step 2: State the security posture honestly** — the API publishes to loopback only and exposing it is a deliberate decision requiring a TLS reverse proxy; the dashboard has no auth and binds loopback; whatever `ENVIRONMENT` value Task 0 Step 2 settles on, and why; zero-seed mode is the default; **known limitation — no spend cap on seed inference** (Phase 2.6, designed, unbuilt).
+- [ ] **Step 2: State the security posture honestly**
+
+The API publishes to loopback only, and exposing it is a deliberate decision requiring a TLS reverse proxy · `ENVIRONMENT=production` is the shipped default and why (Task 0 Step 2's table) · zero-seed mode is the default · **known limitation: no spend cap on seed inference** (Phase 2.6, designed, unbuilt) · **the moderation gate is optional, and if enabled, Claude Haiku 4.5 is what is validated** — quote the measured figures and point at `evals/moderation/` for re-validation.
+
+🔴 **Rev 2 prescribed a sentence that is false.** It said to write *"the dashboard has no auth and binds loopback."* Under compose it does **not** bind loopback — Task 1 Step 4 mandates `--server.address=0.0.0.0`, because container-loopback is unreachable through a published port. Publishing to host loopback constrains the **host**, not the compose network. The honest statement:
+
+> The dashboard has no authentication of its own. It is published on host loopback only, but it is reachable **unauthenticated from any container on the same compose network** — including the seed containers, which are the components that ingest untrusted network content. Do not run the `dashboard` and `seeds` profiles on one network without an internal-network split.
+
+🔑 **The general lesson: "binds loopback" means something different inside a container than on a host.** Every network claim in `DEPLOY.md` needs checking against which namespace it is actually true in.
 - [ ] **Step 3: Fix `OLLAMA_BASE_URL`** — `.env.example:58` is `http://127.0.0.1:11434`, which inside a container is the container itself. The spec lists this as fixed-along-the-way and rev 1 never did it.
-- [ ] **Step 4: Commit**
+
+- [ ] **Step 4: 🔴 Update `README.md` — the plan's own goal fails without it**
+
+The goal sentence is *"a stranger clones this repository … and runs `docker compose up -d`."* **`README.md:12` currently says "No Docker needed — the app deploys as venv + systemd."** There is no Docker quickstart and nothing links to `DEPLOY.md`, so a stranger following the README never finds any of this. The spec is explicit: *"The root README becomes the entry point."*
+
+Also correct the "Running the app" section, which documents the five production preflight controls that Task 0 Step 2 changes.
+
+- [ ] **Step 5: Fix the stale eval numbers in `config.py:70-72`** — the comment still reads *"1,540-verdict eval: harmful false-PASS 3.1%→0.4%."* If `DEPLOY.md` and the README are going to publish the current figures (1,370 verdicts, 0 egregious leaks, 0.0% / 1.8% / 100%), the source comment must not contradict them. **Two numbers for the same measurement is how a reader learns not to trust either.**
+
+- [ ] **Step 6: Commit**
 
 ---
 
@@ -387,7 +509,8 @@ Expected: `0` then **non-zero**. A smoke test that has never failed has not been
 - [ ] **Step 4: Run the smoke test there.**
 - [ ] **Step 5: 🔑 Prove zero-seed mode boots.** Code-traced since 2026-07-30, **never executed**. Until this passes, `DEPLOY.md` must not tell anyone to rely on it.
 - [ ] **Step 6: Roll back to the snapshot and do it again** from the corrected `DEPLOY.md`. The second run is the one that counts; the first is discovery.
-- [ ] **Step 7: Commit the documentation fixes.**
+- [ ] **Step 7: 🔴 Exercise the `seeds` profile too — rev 2 covered only zero-seed mode.** The spec's own fresh-box section says *"then repeat with `--profile seeds` against a reachable Ollama."* This is also the **only** place `scripts/smoke.py --with-answer` (Task 5 Step 2) ever runs — introduced in rev 2 and never invoked, so a flag nobody has executed would have shipped documented.
+- [ ] **Step 8: Commit the documentation fixes.**
 
 ---
 
@@ -395,8 +518,24 @@ Expected: `0` then **non-zero**. A smoke test that has never failed has not been
 
 Three docs-only commits to `master` today each ran the full 25-minute backend suite to prove that markdown did not break Python — roughly 78 minutes of runner time for zero information.
 
-- [ ] **Step 1: Add a path filter** to `.gitea/workflows/ci.yml` so docs-only changes skip the suites. Verify the filter's syntax is supported by this Gitea Actions version **before** relying on it — a filter that silently matches nothing would skip CI entirely, which is far worse than running it needlessly.
-- [ ] **Step 2: Add `docker compose config` as a CI step** so compose defects are caught without a full run.
+- [ ] **Step 1: Add a path filter** to `.gitea/workflows/ci.yml` so docs-only changes skip the suites.
+
+✏️ **Rev 2 got the safety reasoning backwards.** It warned that "a filter that silently matches nothing would skip CI entirely" — that is true of **`paths:`** (an allowlist: no match → no run) and **false of `paths-ignore:`** (a denylist: no match → runs anyway). **Use `paths-ignore:`, which fails safe by running.** Verify the syntax is honoured by this Gitea Actions version before relying on it.
+
+- [ ] **Step 2: Add `docker compose config` as a CI step — with a throwaway `.env`**
+
+🔴 **As rev 2 wrote it, this makes CI permanently red.** The runner checks out a tree with **no `.env`** (gitignored), so `${POSTGRES_PASSWORD:?}` errors on every run. The step must write a throwaway `.env` first, or export the variable in the job env:
+
+```yaml
+      - name: Validate compose file
+        run: |
+          printf 'POSTGRES_PASSWORD=ci-throwaway\n' > .env.ci
+          docker compose --env-file .env.ci config > /dev/null
+          rm -f .env.ci
+```
+
+⚠️ **Redirect to `/dev/null`** — `docker compose config` prints resolved secrets in plaintext, and a CI log is the last place they belong.
+⚠️ **Confirm the `homelab` runner actually has Docker** before adding this step; nothing in this project has ever needed it there.
 - [ ] **Step 3: Prove both** — one docs-only commit that skips, one code commit that does not.
 - [ ] **Step 4: Commit**
 
