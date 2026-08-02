@@ -97,9 +97,11 @@ Expected: three `N passed` lines, no failures.
 
 ```bash
 cd /f/ObsidianAI/conclave-seeds && uv venv .venv-baseline --python 3.12 --seed \
-  && .venv-baseline/bin/pip install -q -r requirements.txt \
-  && .venv-baseline/bin/python -m pytest -q 2>&1 | tail -3
+  && .venv-baseline/Scripts/python.exe -m pip install -q -r requirements.txt \
+  && .venv-baseline/Scripts/python.exe -m pytest -q 2>&1 | tail -3
 ```
+
+(Windows venv layout again — `Scripts/`, not `bin/`. Delete `.venv-baseline` afterwards; it is scratch, and both sub-repos are about to stop being separate repositories anyway.)
 
 **Skipping a baseline is not acceptable.** Task 4 compares against these numbers, and "I did not record it" and "it did not change" are indistinguishable afterwards.
 
