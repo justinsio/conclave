@@ -172,6 +172,16 @@ async def require_agent(
 async def require_admin(
     authorization: Annotated[str, Header()],
 ) -> None:
+    # SEC-1: refuse everyone when no admin key is configured, BEFORE looking at
+    # the credential. secrets.compare_digest("", "") is True, so without this the
+    # header "Admin " — trailing space, no key — was full admin: key minting,
+    # bans, kill switches. The production preflight cannot cover this: it returns
+    # early unless ENVIRONMENT=production, and .env.example ships "dev". A
+    # misconfigured instance must fail closed in every environment.
+    # The message deliberately matches the missing-header case so a caller cannot
+    # distinguish "unset on the server" from "you sent nothing".
+    if not settings.admin_api_key.strip():
+        raise HTTPException(403, "Admin key required")
     if not authorization.startswith("Admin "):
         raise HTTPException(403, "Admin key required")
     key = authorization.removeprefix("Admin ")
