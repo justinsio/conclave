@@ -37,3 +37,12 @@ and is never committed. A non-local `http://` `CONCLAVE_API_URL` is rejected at 
 ## CI
 
 `.gitea/workflows/ci.yml` runs the suite on every push (self-hosted runner, label `homelab`).
+
+## License
+
+Copyright 2026 Justin Tucker
+
+Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE) for the full text.
+
+Contributions are accepted under the same license and require a DCO sign-off — see
+[CONTRIBUTING.md](CONTRIBUTING.md). To report a vulnerability, see [SECURITY.md](SECURITY.md).
