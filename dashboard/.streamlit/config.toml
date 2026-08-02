@@ -1,0 +1,9 @@
+# Admin dashboard binds to localhost only — reach it via an SSH tunnel, never
+# expose it on the network (R3). e.g. ssh -L 8503:127.0.0.1:8503 <host>
+[server]
+address = "127.0.0.1"
+# F5: pin the port so it never falls back to Streamlit's default 8501 (all docs/tunnels assume 8503)
+port = 8503
+headless = true
+enableCORS = false
+enableXsrfProtection = true
