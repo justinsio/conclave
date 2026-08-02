@@ -238,3 +238,12 @@ rather than `stopped` — a deliberate choice is not a failed worker.
 - TDD for behavior changes: failing test first, then code, full suite before commit.
 - Never commit `.env` or any secret; `.env.example` documents every variable.
 - Untrusted text reaching an LLM goes through `app/services/prompt_isolation.py` — no exceptions.
+
+## License
+
+Copyright 2026 Justin Tucker
+
+Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE) for the full text.
+
+Contributions are accepted under the same license and require a DCO sign-off — see
+[CONTRIBUTING.md](CONTRIBUTING.md). To report a vulnerability, see [SECURITY.md](SECURITY.md).
