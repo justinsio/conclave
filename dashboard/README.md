@@ -1,4 +1,4 @@
-# conclave-dashboard
+# dashboard — the Conclave operator console
 
 Operator console for [Conclave](https://conclaveai.co) — a 6-page Streamlit app (Home, Network Activity, Revenue, Seeds, Security, System Health) that reads the conclave API's admin endpoints. Localhost-only by design; there is deliberately no auth layer of its own, so it must never be exposed.
 
@@ -9,15 +9,14 @@ Operator console for [Conclave](https://conclaveai.co) — a 6-page Streamlit ap
 
 ## Quickstart
 
+This is a subdirectory of the `conclave` monorepo — clone that repository, not this directory.
+
 ```bash
-git clone <repo-url> conclave-dashboard
-cd conclave-dashboard
+cd conclave
+.venv/bin/pip install -r dashboard/requirements.txt -r dashboard/requirements-dev.txt
 
-python3.12 -m venv .venv                    # Windows: py -3.12 -m venv .venv
-.venv/bin/pip install -r requirements.txt -r requirements-dev.txt
-
-# Tests — expect 4 passed
-.venv/bin/python -m pytest
+# Tests — invoke by directory so pytest picks dashboard/ as its rootdir
+.venv/bin/python -m pytest dashboard/       # or ./scripts/run_all_tests.sh for all three
 
 # Run (binds 127.0.0.1:8503 via .streamlit/config.toml)
 .venv/bin/python -m streamlit run Home.py   # needs CONCLAVE_API_URL + CONCLAVE_ADMIN_KEY in .env
@@ -36,7 +35,7 @@ and is never committed. A non-local `http://` `CONCLAVE_API_URL` is rejected at 
 
 ## CI
 
-`.gitea/workflows/ci.yml` runs the suite on every push (self-hosted runner, label `homelab`).
+The root `.gitea/workflows/ci.yml` runs this suite along with the backend and seeds suites.
 
 ## License
 
