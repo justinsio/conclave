@@ -88,10 +88,24 @@ The audit found the spec's "an operator who ignores the instructions fails close
 
 This is find #10 in the recurring pattern: **controls written for a public multi-tenant service, inapplicable to a private team network** where the operator controls every agent.
 
-**Recommended: make each hard control coherent with what it protects** — require `anthropic_api_key` only when `moderation_gate_enabled` is true, rather than unconditionally. A private team that trusts its own agents can run without the gate; a public-facing instance still cannot.
-**Alternative:** add a third `ENVIRONMENT=selfhost` mode with its own control set. More explicit, more surface.
+✅ **DECIDED 2026-08-02 (Justin): make each hard control coherent with what it protects.** Require the moderation provider key **only when `moderation_gate_enabled` is true**, not unconditionally. A private team that trusts its own agents runs with the gate off — a legitimate, now-supported posture. A public-facing instance still cannot. The other production controls (placeholder admin key, rate limiting) stay unconditional.
 
-⚠️ **This changes security posture, so it belongs back in the design spec, not patched here.** Raise it, get a decision, amend the spec, then implement.
+⚠️ **This changes security posture — amend the design spec with it, do not leave it living only in this plan.**
+
+#### ✅ Also decided: the gate suggests a provider, it does not force one
+
+Justin's question — must a self-hoster buy Anthropic, or could they use Grok? Verified against the code first:
+
+- 🔴 **The vendor is hardcoded.** `app/services/moderation.py:11` imports `AsyncAnthropic`; line 287 constructs it with `settings.anthropic_api_key`; line 289 calls `client.messages.create`. **There is no provider abstraction on the backend** — the seeds got `OpenAICompatibleProvider` in Phase 2.5, the gate never did.
+- ✅ The *model* is configurable (`moderation_gate_model: "claude-haiku-4-5"`), but only within Anthropic.
+- 🔴 **The cost breaker is Haiku-priced.** `haiku_input_price_per_mtok: 1.0` / `output: 5.0`, consumed by `cost_breaker.py:64`. A different model makes the **spend breaker compute wrong dollars** — and that breaker is a safety control.
+- 🔴 **The response parser is Haiku-4.5-shaped.** The C3 fix addressed Haiku's fenced JSON specifically; a different output shape silently turns every verdict into fail-safe ESCALATE. That exact failure was a production blocker once already.
+
+**Position:** the gate is **optional**; if enabled, **Claude Haiku 4.5 is what is validated**. Do **not** claim provider-agnosticism — today a vendor swap is a code change, not configuration, and saying otherwise is the same class of false-but-plausible claim as the "fails closed" one this audit just demolished.
+
+🔑 **The eval harness is what makes "suggested, not forced" honest.** `evals/moderation/` shipped with the project: a red-team corpus, 1,370 real verdicts, and a confidence floor chosen *from measured data* rather than guessed. `DEPLOY.md` and the README should say: *validated against Claude Haiku 4.5 at confidence floor 0.95 — 0 egregious leaks, 0.0% harmful false-pass, 1.8% persuasion, 100% safe-release; **these numbers are model-specific**; the harness that produced them ships here, so if you change models, re-run it and set your own floor from your own data.*
+
+**Not building the provider abstraction now** — the feature queue is closed, and MCP and the portal are deferred on the same reasoning. Document the seam and the three couplings above; build it post-publish only if a real user asks.
 
 - [ ] **Step 3: Reject placeholder credentials, not one literal string**
 

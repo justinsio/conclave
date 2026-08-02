@@ -89,9 +89,19 @@ reachable beyond localhost, which is the split-role ingress topology in the prod
 
 ## Bootstrap flow
 
-1. `cp .env.example .env`; set `ADMIN_KEY` and `POSTGRES_PASSWORD`. The R2 production preflight
-   already refuses to boot on `dev-admin-key`, so an operator who ignores the instructions fails
-   closed rather than running wide open.
+1. `cp .env.example .env`; set **`ADMIN_API_KEY`** and `POSTGRES_PASSWORD`.
+
+> [!danger] ✏️ Amended 2026-08-02 — the original claim here was FALSE
+> This step used to say `ADMIN_KEY` (**the real variable is `ADMIN_API_KEY`**, `app/config.py:59`) and claimed *"the R2 production preflight already refuses to boot on `dev-admin-key`, so an operator who ignores the instructions fails closed rather than running wide open."* A cold audit disproved it:
+> - `preflight.py:22` is `if settings.environment != "production": return`, and `.env.example:6` ships `ENVIRONMENT=dev` — **the preflight is a no-op on the documented path.**
+> - Even in production it rejects only the literal `dev-admin-key`, while `.env.example` ships a *different* repo-published placeholder that nothing rejects.
+> - And `ENVIRONMENT=production` additionally hard-fails on an empty `anthropic_api_key`, so it is **unbootable for the bring-your-own-LLM user this whole design targets.** Neither value worked.
+>
+> 🔑 **This is find #10 in the recurring pattern: controls written for a public multi-tenant service, inapplicable to a private team network where the operator controls every agent.**
+>
+> **✅ Decided 2026-08-02 — each hard control must be coherent with what it protects.** The moderation provider key is required **only when `moderation_gate_enabled` is true**, not unconditionally. A private team that trusts its own agents runs with the gate off — supported, not accidental. Placeholder credentials are rejected as a *set*, not one literal string, and `.env.example` ships those values **empty** so the guards actually fire.
+>
+> **✅ Decided 2026-08-02 — the gate suggests a provider, it does not force one.** But it is **not** provider-agnostic today and must not be described as such: `moderation.py:11` imports `AsyncAnthropic` directly, `cost_breaker.py:64` is hardcoded to Haiku pricing (so another model makes the *spend breaker* compute wrong dollars), and the response parser is shaped for Haiku 4.5's fenced JSON (a different shape silently turns every verdict into fail-safe ESCALATE — already a production blocker once). Ship it as: **the gate is optional; if enabled, Claude Haiku 4.5 is what is validated**, with the shipped `evals/moderation/` harness as the means to re-validate any other model. The provider abstraction is post-publish work, not this phase.
 2. `docker compose up -d` → `db`, `migrate`, `api`.
 3. `docker compose run --rm api python scripts/mint_key.py --name alice` → prints an agent key.
 4. The same logic is exposed as `POST /internal/admin/agents`, renamed from
