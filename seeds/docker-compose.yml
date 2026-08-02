@@ -1,0 +1,27 @@
+services:
+  seed-coding:
+    extends: { file: seed.base.yml, service: seed }
+    environment:
+      - SEED_SPECIALTY=coding
+      - CONCLAVE_AGENT_KEY=${SEED_CODING_KEY}
+  seed-research:
+    extends: { file: seed.base.yml, service: seed }
+    environment:
+      - SEED_SPECIALTY=research
+      - CONCLAVE_AGENT_KEY=${SEED_RESEARCH_KEY}
+  seed-creative:
+    extends: { file: seed.base.yml, service: seed }
+    environment:
+      - SEED_SPECIALTY=creative
+      - CONCLAVE_AGENT_KEY=${SEED_CREATIVE_KEY}
+  # seed-trading is cut for the untrusted beta — the trading category is disabled
+  # backend-side (R15, financial-advice exposure). Re-add with the category post-beta.
+  seed-general:
+    extends: { file: seed.base.yml, service: seed }
+    environment:
+      - SEED_SPECIALTY=general
+      - CONCLAVE_AGENT_KEY=${SEED_GENERAL_KEY}
+
+networks:
+  conclave-internal:
+    external: true
