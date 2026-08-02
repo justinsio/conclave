@@ -10,6 +10,36 @@
 
 ---
 
+> [!danger] 🛑 REV 2 IS ALSO NOT SAFE TO EXECUTE — re-audit 2026-08-02 found 4 CRITICAL + 13 IMPORTANT
+> **Three of the eight rev-1 criticals are not actually closed, and one rev-2 "fix" created a worse hole than the defect it replaced.** A rev 3 is required. All four criticals below were independently re-verified.
+>
+> ### 🔴🔴 SEC-1 — a LIVE VULNERABILITY in shipped code, not a plan defect
+> `app/auth.py:176-180`:
+> ```python
+> key = authorization.removeprefix("Admin ")
+> if not secrets.compare_digest(key, settings.admin_api_key):
+>     raise HTTPException(403, "Invalid admin key")
+> ```
+> **When `ADMIN_API_KEY` is empty, `secrets.compare_digest("", "")` returns `True`** — so the header `Authorization: Admin ` (trailing space, no key) is **full admin**: key minting, bans, kill switches. Verified by execution. The preflight cannot save you: `preflight.py:22` returns immediately unless `ENVIRONMENT=production`, and `.env.example:6` ships `dev`.
+> **This exists today, independent of this plan.** Setting `ADMIN_API_KEY=` empty — a natural thing to do when you don't want a feature — silently opens the admin surface.
+> ⚠️ **Rev 2's Task 0 Step 3 would have made this the DEFAULT for every self-hoster**, by shipping the key empty so `${VAR:?}` would fire. It doesn't fire — `ADMIN_API_KEY` reaches the app through `env_file`, not interpolation.
+> **Fix (do this first, as its own change, before any Plan B work):** `require_admin` must reject an empty configured `admin_api_key` unconditionally in every environment, *before* the compare. Add `""` to the rejected-placeholder set. Only then consider shipping the value empty.
+>
+> ### 🔴 C-3 — Task 3 Step 1 reintroduces the exact defect C1 fixed
+> Task 0 Step 1 declares one field (`postgres_password`); Task 3 Step 1 then adds `SEED_GENERAL_KEY` to `.env.example`. pydantic-settings **skips empty undeclared keys**, so it ships green and CI stays green — then breaks the instant an operator fills it in, which is the only reason the variable exists. `ValidationError … seed_general_key … Extra inputs are not permitted` → `import app.config` fails → the **api container** dies, plus every dev box and the systemd host. And the topology has **four** seeds, not one, plus any `CONCLAVE_ADMIN_KEY` bridge. **Fix:** declare every compose-only key in `Settings`, or move to `extra='ignore'` with a test that pins it — and the test must use a **non-empty** value or it passes vacuously.
+>
+> ### 🔴 C-4 — the TTL decision 500s on create and 404s on a successful extend
+> The SQL analysis was right; it stops one layer too early. `BetaUserCreated.key_expires_at` is `datetime`, **not** `datetime | None` (`admin_beta_users.py:40`) — writing NULL raises an unhandled `ValidationError` → **500 on every mint under the new default**. And extend uses `None` as its row-not-found sentinel (`if new_expiry is None: raise HTTPException(404)`), so a **successful** extend of a never-expiring key returns `404 user_not_found` after modifying the row.
+> ✏️ **My SQL citation was also wrong:** the extend site is `COALESCE(key_expires_at, NOW()) + make_interval(days => $2)`, not bare `make_interval` — a *different* trap from the one I described.
+> ✏️ **And "expected 575/65/4 plus new tests" is false** — `tests/test_beta_accounts.py:93,144,167` and `tests/test_admin_audit_log.py:53,66,71` all assert an expiry exists. At least three break.
+>
+> ### 🔴 C-2 — the ENVIRONMENT decision resolves 1 of 3 blockers and still names no value
+> `preflight.py` hard-fails production on **five** things. The decision relaxed only `anthropic_api_key` and then claimed "the other production controls stay unconditional" while naming just two of the remaining four. Still blocking the same user: line 30 `moderation_gate_enabled` — which makes the *"private team runs with the gate off"* posture the decision explicitly endorses **impossible under `production`** — and line 38 `trusted_proxy_ips`, which a LAN self-hoster without a proxy does not have. **The plan still never states which `ENVIRONMENT` value ships**, yet Task 6 Step 2 tells the writer to document "whatever Task 0 Step 2 settles on." **Fix:** decide all five. `warn_self_host_posture` (`preflight.py:64`) already exists and is the right home for the gate check.
+>
+> **Also newly broken by rev 2:** Task 2 Step 3 and Task 8 Step 2 both run `docker compose config` on a tree with no `.env`, which now **always fails** because of Task 2 Step 1's `${POSTGRES_PASSWORD:?}` — CI would go permanently red. `db` is missing `POSTGRES_USER`/`POSTGRES_DB` that its own DSN requires, and bare `pg_isready` returns green anyway, so the healthcheck passes while `migrate` fails. Task 2 Step 6 is **still a check that cannot fail** (`apply_migrations.py` exits 0 on both branches). Task 6 Step 2's prescribed sentence "the dashboard has no auth and binds loopback" becomes **false** once Task 1 Step 4 mandates `--server.address=0.0.0.0` — it is then reachable unauthenticated from every container on the compose network, **including the seeds**.
+>
+> **What the audit confirmed as sound:** Task 0 Step 1's probe (real reproduction, real fix), Task 1 Step 2's rewritten image probe (all three cases distinguish correctly), the `${VAR:?}`-on-a-profiled-service diagnosis on v5.3.1, NULL-means-never-expires, `users.email NOT NULL UNIQUE`, the `@local.invalid` approach, the **exact eval figures** (re-scored offline: 1,370 verdicts, 0 egregious leaks, 0.0%, 1.8%, 100%), the 575/65/4 baseline, and every other file:line citation.
+
 ## Revision 2 — what changed and why
 
 Revision 1 was audited cold and came back **not safe to execute**: 8 criticals. Every finding was independently re-verified before this rewrite. The headline defects:
