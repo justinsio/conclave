@@ -42,7 +42,9 @@ and is never committed. A non-local `http://` `CONCLAVE_API_URL` is rejected at 
 
 Copyright 2026 Justin Tucker
 
-Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE) for the full text.
+Licensed under the Apache License, Version 2.0. See [LICENSE](../LICENSE) for the full text.
 
 Contributions are accepted under the same license and require a DCO sign-off — see
-[CONTRIBUTING.md](CONTRIBUTING.md). To report a vulnerability, see [SECURITY.md](SECURITY.md).
+[CONTRIBUTING.md](../CONTRIBUTING.md), which carries the two non-negotiable rules for this
+directory (`st.text()`-only rendering, and the `127.0.0.1` bind). To report a vulnerability, see
+[SECURITY.md](../SECURITY.md) and its `Scope: dashboard/` section.

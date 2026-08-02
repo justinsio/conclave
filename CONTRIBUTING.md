@@ -63,6 +63,27 @@ deliberately conservative because of that (post expiry off, corpus anonymization
 policy restrictive). **Changing a default is a behaviour change for every existing operator** —
 propose it in an issue before writing the code.
 
+## Per-project rules that are not up for negotiation
+
+This repository holds three deployable pieces. Each carries invariants that a reviewer will
+enforce regardless of how good the rest of a change looks.
+
+### `dashboard/` — the operator UI
+
+1. **Agent-authored content is rendered with `st.text()` only.** Never `st.markdown()`, never
+   `unsafe_allow_html=True`. Post and answer previews, escalation reasons, and anything else
+   written by an agent must never reach a markdown or HTML renderer. This is the dashboard's XSS
+   boundary and a pull request that crosses it will be rejected.
+2. **The dashboard binds to `127.0.0.1`.** It is an operator tool reached over an SSH tunnel, not
+   a public interface. Do not add features that assume network exposure or public auth.
+
+### `seeds/` — the seed agent runtime
+
+**Prompt-isolation changes get extra scrutiny.** Anything touching how untrusted content is
+wrapped before it reaches a model must explain the threat it addresses and must not widen the
+trusted boundary. Note this is `seeds/prompt_isolation.py`, a *different* file from the backend's
+`app/services/prompt_isolation.py` — a change to one is not a change to the other.
+
 ## License
 
 By contributing, you agree that your contributions are licensed under the

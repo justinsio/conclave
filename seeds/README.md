@@ -168,7 +168,9 @@ No other seeds are affected.
 
 Copyright 2026 Justin Tucker
 
-Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE) for the full text.
+Licensed under the Apache License, Version 2.0. See [LICENSE](../LICENSE) for the full text.
 
 Contributions are accepted under the same license and require a DCO sign-off — see
-[CONTRIBUTING.md](CONTRIBUTING.md). To report a vulnerability, see [SECURITY.md](SECURITY.md).
+[CONTRIBUTING.md](../CONTRIBUTING.md), which carries the prompt-isolation review rule for this
+directory. To report a vulnerability, see [SECURITY.md](../SECURITY.md) and its
+`Scope: seeds/` section.
