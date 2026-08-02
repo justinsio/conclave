@@ -13,7 +13,19 @@
 > [!danger] 🛑 DO NOT EXECUTE — cold-reader audit 2026-08-02 found 8 criticals. Revision required.
 > Every finding below was **independently re-verified** before being recorded here.
 >
-> **🔴 BLOCKER — Docker is not installed on the dev machine.** Not on `PATH` in Git Bash or PowerShell; WSL is absent; no Docker service; no podman. **Tasks 1, 2, 3, 5 and 7 cannot run at all.** This needs a decision before anything else: install Docker Desktop (requires WSL2), or do the compose work on a Linux guest — which Task 7 needs anyway.
+> **✅ BLOCKER RESOLVED 2026-08-02 — development moves to VM 1113 `conclave-sut` (192.168.32.117).**
+> Docker is absent from the Windows dev machine (no `PATH` entry in either shell, no WSL, no service, no podman) and an ISO install needs a console I cannot drive. **Justin chose to repurpose the existing Test A VM**, which also serves his goal of retiring homelab guests that no longer have a purpose.
+>
+> **Verified on 1113, by executing — not assumed:**
+> - Debian 12 bookworm, 4 cores, 11 GB RAM, 2.5 G of 40 G used, passwordless sudo.
+> - **A real VM, not an LXC** — Docker behaves as it would on a stranger's machine, with no nesting/keyctl caveats.
+> - `conclave.service` and `postgresql@16-main` **stopped and disabled**, freeing ports 8000 and 5432. Fully reversible with `systemctl enable --now`; nothing was deleted.
+> - **Docker 29.7.1 / Compose v5.3.1**, installed from Docker's signed APT repo (key `9DC858229FC7DD38854AE2D88D81803C0EBFCD88`), *not* `curl | sh`. Storage driver `overlayfs`; usable without `sudo` as the `conclave` user.
+> - 🔑 **`depends_on: condition: service_completed_successfully` verified at RUNTIME on this exact version** — a two-service probe printed `migrate-ran` before `started-after`. This is the mechanism the entire migration-ordering guarantee rests on, and it is now proven rather than cited.
+>
+> ⚠️ **1113 cannot be snapshotted** — its disk is on `nvme1a`, plain LVM; `qm snapshot` returns *"snapshot feature is not available"*. **Task 7 therefore still needs a separate, purpose-built guest on `local-lvm`** (lvmthin, 3.7 TB free, snapshot-capable), because 1113 has hosted Conclave and can never be a fresh box. Build it from a Debian cloud image + cloud-init; the ISO is interactive and unusable here.
+>
+> **Iteration loop:** edit on Windows, `rsync` to 1113, run compose there. No commit-push-pull per experiment — and no CI run per experiment, which at ~26 minutes would be intolerable.
 >
 > **🔴 C1 — Task 2 Step 1 breaks the application on every dev machine and the production host.** Adding `POSTGRES_PASSWORD` to `.env` makes `app.config` unimportable: `Settings` is `extra='forbid'`, so `settings = Settings()` at module scope raises `extra_forbidden`. Verified: `pydantic_core.ValidationError: postgres_password — Extra inputs are not permitted`. **The plan cites `extra='forbid'` two lines above the change that violates it.** Blast radius includes `./scripts/run_all_tests.sh` (the plan's own verification step) and the systemd box via `EnvironmentFile`. **CI would stay green** — the runner never creates a `.env`. Fix: declare `postgres_password: str = ""` in `Settings`, or keep it out of `.env` entirely.
 >
