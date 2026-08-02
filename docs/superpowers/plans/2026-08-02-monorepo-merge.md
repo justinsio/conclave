@@ -142,11 +142,15 @@ Expected: `Added dir 'seeds'` and a merge commit.
 
 - [ ] **Step 3: Verify history came across, not just files**
 
+⚠️ **Do NOT use `git log --oneline -- seeds/`** — it returns `1` even on a correct non-squashed merge. Path-limited log only matches commits whose own diff touches that literal path, and the imported commits have their content at the source repo's root; the `seeds/` prefix exists only in the merge commit's tree.
+
 ```bash
-git log --oneline -- seeds/ | wc -l
+echo "imported: $(git log --oneline HEAD^2 | wc -l) commits"
+echo "source:   $(git -C /f/ObsidianAI/conclave-seeds log --oneline master | wc -l) commits"
+git log -1 --format='parents=%p'
 ```
 
-Expected: **more than 1** — around 27 commits. If it returns `1`, the history was squashed and Step 2 must be redone.
+Expected: the counts **match** (35 as of 2026-08-02) and `parents=` lists **two** SHAs. A squash would show one parent and no second-parent chain.
 
 - [ ] **Step 4: Remove the temporary remote**
 
@@ -197,11 +201,17 @@ Expected: `Added dir 'dashboard'`.
 
 - [ ] **Step 3: Verify history came across**
 
+⚠️ **Do NOT use `git log --oneline -- dashboard/`.** It returns `1` even on a perfectly good non-squashed merge, because path-limited log only matches commits whose own diff touches that literal path — and the imported commits have their content at the *source repo's root*, not under `dashboard/`. That prefix exists only in the merge commit's tree. This false alarm was found during Task 2 execution on 2026-08-02.
+
+Verify the second-parent chain instead:
+
 ```bash
-git log --oneline -- dashboard/ | wc -l
+echo "imported: $(git log --oneline HEAD^2 | wc -l) commits"
+echo "source:   $(git -C /f/ObsidianAI/conclave-dashboard log --oneline master | wc -l) commits"
+git log -1 --format='parents=%p'
 ```
 
-Expected: **more than 1** — around 10 commits.
+Expected: the two counts **match**, and `parents=` shows **two** SHAs. A squashed merge would show one parent and no chain.
 
 - [ ] **Step 4: Remove the temporary remote**
 
@@ -574,13 +584,15 @@ Expected: clean tree, three passing suites at baseline counts, ruff clean.
 
 - [ ] **Step 2: Confirm both histories survived**
 
+Path-limited log is the wrong tool here (see Task 3 Step 3). By this point `HEAD^2` no longer refers to a subtree merge either, so verify by **reachability of the source tips** — the durable check:
+
 ```bash
-echo "seeds:     $(git log --oneline -- seeds/ | wc -l) commits"
-echo "dashboard: $(git log --oneline -- dashboard/ | wc -l) commits"
-echo "total:     $(git log --oneline | wc -l) commits"
+git cat-file -e 25dde89 && echo "seeds history reachable"
+git cat-file -e d6781c5 && echo "dashboard history reachable"
+echo "total: $(git log --oneline | wc -l) commits"
 ```
 
-Expected: roughly 27, 10, and a total well above the pre-merge 149.
+Expected: both reachability lines print, and the total is well above the pre-merge 149 — roughly 190+. Those two SHAs are the source repositories' tips at merge time; if either is unreachable, that history did not come across.
 
 - [ ] **Step 3: Confirm no secrets came across**
 
