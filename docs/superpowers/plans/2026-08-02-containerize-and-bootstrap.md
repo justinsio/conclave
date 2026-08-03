@@ -1,4 +1,4 @@
-# Containerize & Bootstrap Implementation Plan — **revision 5**
+# Containerize & Bootstrap Implementation Plan — **revision 6**
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -10,8 +10,8 @@
 
 ---
 
-> [!note] 📋 Revision 5 — written against the **fourth** audit. Not yet re-audited.
-> **Audit history: rev 1 → 8 criticals · rev 2 → 4 · rev 3 → 2 · rev 4 → 2.** The trend is the point: each round is smaller, and **every round's defects were in the previous round's corrections**, not in the original text.
+> [!note] 📋 Revision 6 — written against the **fifth** audit.
+> **Audit history: rev 1 → 8 criticals · rev 2 → 4 · rev 3 → 2 · rev 4 → 2 · rev 5 → 2.** The trend is the point: each round is smaller, and **every round's defects were in the previous round's corrections**, not in the original text.
 >
 > - Rev 2's criticals: three rev-1 findings *discussed but not fixed*, plus a **security regression created by a fix** (shipping the admin key empty, when an empty key made `Authorization: Admin ` authenticate).
 > - Rev 3's criticals: an `ENVIRONMENT=production` default that **would not boot**, because the decision was made without the `.env.example` line that makes it true; and a CI fix that **left CI red**, because `--env-file` does not satisfy `env_file:`.
@@ -120,7 +120,7 @@ conclave_admin_key: str = ""     # compose-only; the dashboard's name for ADMIN_
 
 📌 `app/config.py` does not literally contain `extra='forbid'` — it is pydantic-settings' **default**. A reader who greps for the string and finds nothing may wrongly conclude the constraint is gone.
 
-📌 **The four SEED_* keys go in `.env.example` too**, empty, under a commented `# ── Compose profiles ──` block — not just `SEED_GENERAL_KEY`, which is what Task 3 Step 1 says and what rev 3 left behind. **`CONCLAVE_ADMIN_KEY` does NOT go in `.env.example`** — it is bridged from `ADMIN_API_KEY` in compose (Task 3 Step 3); a second hand-filled copy is how every dashboard panel ends up 403ing. So: **six declared fields, four of them in `.env.example`.** Rev 4 wrote "all five keys", which matched neither number.
+📌 **The four SEED_* keys go in `.env.example` too**, empty, under a commented `# ── Compose profiles ──` block — not just `SEED_GENERAL_KEY`, which is what Task 3 Step 1 says and what rev 3 left behind. **`CONCLAVE_ADMIN_KEY` does NOT go in `.env.example`** — it is bridged from `ADMIN_API_KEY` in compose (Task 3 Step 3); a second hand-filled copy is how every dashboard panel ends up 403ing. So: **six declared fields, five of them in `.env.example`** — the four `SEED_*` keys here, plus `POSTGRES_PASSWORD` in Task 2 Step 1. **`CONCLAVE_ADMIN_KEY` is the only one that never appears there.** *(Rev 4 said "five keys", rev 5 said "four in `.env.example`"; both were wrong. Read literally, rev 5's version argued against putting `POSTGRES_PASSWORD` there — and then `cp .env.example .env` produces a file that aborts every compose command on `${POSTGRES_PASSWORD:?}`.)*
 
 - [ ] **Step 1b: Prove the failure first**
 
@@ -299,12 +299,14 @@ Expected: `clean — …`, exit 0.
 
 ⚠️ **The API probe above cannot be reused verbatim** — it asserts `/app/app/main.py`, but the seeds image has `/app/main.py` and the dashboard image `/app/Home.py`. Parameterise it rather than leaving the adaptation to the implementer:
 
+🔴 **Rev 5's guard was a denylist of one path.** It refused context `.` — because that was where a file happened to exist last round — while the destructive `printf > "$2/.env"` … `rm -f "$2/.env"` survived verbatim for `./seeds`. **`seeds/.env` is a file this plan itself tells operators to create** (Step 1's own rationale cites `seeds/.env.example` line 1; Task 3 Step 2 offers `./seeds/.env` as an option; `seed.base.yml:7` is `env_file: .env`), and `seeds/.gitignore` ignores it, so the loss would again be unrecoverable. **Guard on existence, not on a path literal** — one line that covers every context including the root.
+
 🔴🔴 **Rev 4's first draft of this function would have DESTROYED the operator's live secrets.** With context `.` it expanded `"$2/.env"` to `./.env` — the real root `.env` (**688 bytes on the dev box today**: `DATABASE_URL`, `ADMIN_API_KEY`, `TELEGRAM_BOT_TOKEN`, …) — overwrote it with a decoy and then `rm -f`'d it. It is **gitignored, so there is no recovery**, and Task 2 Step 3's first line then fails with "no `.env`". Rev 3's version only ever touched `seeds/.env`, where nothing existed; **parameterising the context is what created the hazard.**
 🔴 **And the API case could never have run** — the parameterisation dropped `-f deploy/Dockerfile`, and there is no `Dockerfile` at the repo root (`ls Dockerfile` → nothing; `deploy/` holds only `conclave.service`). Every run: `FAIL: build`, *after* the `.env` was already gone.
 
 ```bash
 probe() {   # $1=image  $2=context  $3=sentinel proving the COPY worked  $4=dockerfile
-  [ "$2" = "." ] && { echo "REFUSING: will not plant a decoy .env in the repo root"; return 2; }
+  [ -e "$2/.env" ] && { echo "REFUSING($1): $2/.env exists — not clobbering a real file"; return 2; }
   printf 'LLM_API_KEY=probe-should-never-ship\n' > "$2/.env"     # plant a real leak target
   docker build -q -f "$4" -t "$1" "$2" >/dev/null || { echo "FAIL($1): build"; rm -f "$2/.env"; return 2; }
   rm -f "$2/.env"
@@ -324,7 +326,7 @@ Expected: `clean(...)  exit=0` twice.
 
 **The backend image is deliberately not probed this way.** `deploy/Dockerfile` uses explicit `COPY app/ migrations/ scripts/` — it cannot pick up a root `.env` — so the decoy buys nothing and the risk is unacceptable. Its `.dockerignore` is verified by the first block in this step instead, which builds with `-f deploy/Dockerfile` and asserts on the real image.
 
-⚠️ **Ordering:** this step builds `seeds`/`dashboard` images, but **`dashboard/Dockerfile` is written in Step 4**. Run the `probe()` block *after* Step 4, or move it to a Step 4b. Rev 4 left it at Step 2, where the dashboard file does not yet exist.
+⚠️ **Ordering: run this entire step AFTER Step 4 — renumber it Step 4b.** Rev 5 noted that `dashboard/Dockerfile` is written in Step 4 and missed that **`deploy/Dockerfile` is written in Step 3**, which the block at the top of this step also builds. Neither file exists when Step 2 runs, and no `.dockerignore` does either (`ls .dockerignore seeds/.dockerignore dashboard/.dockerignore` → all missing). Moving half the step is not enough.
 
 🔴 **Rev 3's seeds probe was itself a check that cannot fail** — `docker run … 'find …'` with "Expected: no output" had no build guard, no sentinel and no exit assertion. If the build failed, or a **stale image from a previous rsync-and-rebuild iteration** was used, empty output read as PASS. That is the exact "absence of evidence" defect the box above condemns, reintroduced two paragraphs later. The version here proves the image was rebuilt and populated *before* concluding anything about what is absent.
 
@@ -439,12 +441,12 @@ docker compose run --rm --no-deps migrate python scripts/apply_migrations.py --d
   || { echo "FAIL: migrations report as PENDING — schema_migrations recording is broken"; exit 1; }
 ```
 
-⚠️ **Rev 4 described this three-way branch and then left the two-way command above it.** Use the three-way form — an unreachable DB, an unset `DATABASE_URL` (`apply_migrations.py:30` exits to stderr) or a missing image all produce empty stdout, and the `||` branch would blame `schema_migrations` for every one of them. A true failure with a false diagnosis costs more debugging time than no message:
+⚠️ **Branch on the exit status, not on empty output.** Rev 5 wrote the three-way form but captured stderr into the same variable (`2>&1`), so the "could not run" arm was **unreachable**: an unset `DATABASE_URL` (`apply_migrations.py:30` uses `sys.exit(str)`, which writes to stderr), a dead DB and a missing image all produce non-empty `$out` and fall through to the *"schema_migrations recording is broken"* message — the false diagnosis the arm was added to prevent. It cannot produce a false PASS (the grep still gates that), but it sends you debugging the wrong thing. Use the three-way form — an unreachable DB, an unset `DATABASE_URL` (`apply_migrations.py:30` exits to stderr) or a missing image all produce empty stdout, and the `||` branch would blame `schema_migrations` for every one of them. A true failure with a false diagnosis costs more debugging time than no message:
 
 ```bash
-out=$(docker compose run --rm --no-deps migrate python scripts/apply_migrations.py --dry-run 2>&1)
+out=$(docker compose run --rm --no-deps migrate python scripts/apply_migrations.py --dry-run 2>&1); rc=$?
 echo "$out"
-if   [ -z "$out" ];                  then echo "FAIL: no output — could not run (image? DATABASE_URL? db down?)"; exit 2
+if   [ "$rc" -ne 0 ];                     then echo "FAIL: could not run (image? DATABASE_URL? db down?)"; exit 2
 elif echo "$out" | grep -q "^up to date"; then echo "PASS: migrations correctly recorded as applied"
 else echo "FAIL: migrations report as PENDING — schema_migrations recording is broken"; exit 1
 fi
@@ -479,7 +481,9 @@ Compose interpolates the whole document **before** profile filtering, so a requi
 
 `env_file: .env` hands the seed and dashboard `ADMIN_API_KEY`, `ANTHROPIC_API_KEY`, `TELEGRAM_BOT_TOKEN` and the Postgres password. **The seed is the component that ingests untrusted network content and drives an LLM** — that is what `seeds/prompt_isolation.py` exists for. It also contradicts the spec's own claim that a seed's only coupling is `CONCLAVE_API_URL`.
 
-Give each service an **explicit `environment:` block only**, or its own env file (`./seeds/.env`). Never the root one.
+Give each service an **explicit `environment:` block only**. ✏️ Rev 5 offered "or its own env file (`./seeds/.env`)" as an equal option — **it is not.** `seeds/.env` is gitignored and nothing creates it, so on a fresh clone every `--profile seeds` command hard-fails (`env file …/seeds/.env not found`, exit 1) — including Step 5b's own verification, which asserts `--profile seeds config` exits 0. Verified on the VM. **One option, not two.**
+
+🔒 **Carry the seed hardening into `compose.yaml` — the spec requires it and no step said so.** Spec line 71 mandates preserving `read_only: true`, `user: seed`, `tmpfs: [/tmp]`, and those live **only** in `seeds/seed.base.yml:5,6,10`, which Step 6 retires. Dropping them silently un-hardens *"the component that ingests untrusted network content and drives an LLM"* — this plan's own words. Also set `CONCLAVE_API_URL=http://api:8000` explicitly (spec line 83); no step names the value.
 
 - [ ] **Step 3: 🔴 Resolve the dashboard's URL validation — a real decision, not a tweak**
 
@@ -496,8 +500,18 @@ Give each service an **explicit `environment:` block only**, or its own env file
 🔒 **Bridge the name mismatch — in compose, not in `.env`.** The dashboard reads `CONCLAVE_ADMIN_KEY` (`dashboard/api_client.py:38`), the backend defines `ADMIN_API_KEY`. Set it on the dashboard service:
 
 ```yaml
-      CONCLAVE_ADMIN_KEY: ${ADMIN_API_KEY:?}
+      CONCLAVE_ADMIN_KEY: ${ADMIN_API_KEY:-}
 ```
+
+🔴 **`:-`, NOT `:?`.** Rev 5 wrote `:?` here — on a **profiled** service, which violates the rule Step 1 states two steps earlier and reproduces the rev-2 "CI permanently red" defect. Verified on the VM at Compose v5.3.1, using Task 8 Step 2's exact `.env`:
+
+```
+.env with only POSTGRES_PASSWORD  → EXIT=1  required variable ADMIN_API_KEY is missing a value
+.env with both                    → EXIT=0
+${ADMIN_API_KEY:-} , only PW      → EXIT=0
+```
+
+`fa0411c` already makes an empty admin key fail closed with 403 at request time, so `:-` loses no safety — and it also means an operator who *deliberately* leaves the key empty gets a 403 instead of every compose command aborting.
 
 **One secret, one place.** ⚠️ **Do NOT add `CONCLAVE_ADMIN_KEY` to `.env.example`.** The other reading of "bridge the mismatch" is that the operator fills in a second copy — and since Task 0 ships compose-only keys **empty** while `DEPLOY.md` names only `POSTGRES_PASSWORD` and `ADMIN_API_KEY` as must-set, that path sends `Authorization: Admin ` and **every dashboard panel returns 403** with nothing explaining why. (403, not 401 — `auth.py:184,186,190`. Until `fa0411c` it would have *authenticated* instead, which is worse.)
 
@@ -682,7 +696,7 @@ Write the throwaway file as **`.env`** — it satisfies interpolation *and* `env
 ```yaml
       - name: Validate compose file
         run: |
-          printf 'POSTGRES_PASSWORD=ci-throwaway\n' > .env
+          printf 'POSTGRES_PASSWORD=ci-throwaway\nADMIN_API_KEY=ci-throwaway\n' > .env
           docker compose config > /dev/null
           rm -f .env
 ```
