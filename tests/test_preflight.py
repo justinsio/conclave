@@ -16,7 +16,6 @@ def _good_prod(**overrides) -> Settings:
         moderation_gate_enabled=True,
         rate_limit_enabled=True,
         anthropic_api_key="sk-ant-xxx",
-        trusted_proxy_ips="203.0.113.1",
         notify_target="telegram",
         ollama_base_url="http://127.0.0.1:11434",
     )
@@ -74,11 +73,6 @@ def test_production_requires_the_provider_key_ONLY_when_the_gate_is_on():
     assert "anthropic_api_key" in str(exc.value)
 
 
-def test_production_boots_without_a_trusted_proxy():
-    """A LAN self-hoster with no reverse proxy has none to declare."""
-    assert_production_safety(_good_prod(trusted_proxy_ips=""))  # must not raise
-
-
 def test_production_soft_controls_warn_but_boot(caplog):
     with caplog.at_level(logging.WARNING):
         assert_production_safety(_good_prod(notify_target="none", ollama_base_url=""))
@@ -103,45 +97,44 @@ def test_notify_target_set_produces_no_notification_warning(caplog):
 # unless environment == "production", while these must reach an operator in ANY
 # environment. main.py calls both, in that order.
 #
-# The moderation gate and trusted_proxy_ips were HARD production failures until
-# 2026-08-02. Both were demoted here, because both made ENVIRONMENT=production
-# unbootable for a self-hoster — the gate needs a paid LLM, and a LAN deployment
-# has no proxy to declare. Demoting a control must never mean deleting it, so
-# each has a warning test below.
+# The moderation gate was a HARD production failure until 2026-08-02. It was
+# demoted here because it made ENVIRONMENT=production unbootable for a
+# self-hoster — the gate needs a paid LLM. Demoting a control must never mean
+# deleting it, so it has a warning test below.
+#
+# A trusted_proxy_ips warning lived here too and was DELETED 2026-08-03, not
+# demoted: the setting's only reader was the public waitlist route, removed with
+# the rest of the pre-launch marketing surface. The three tests that covered it
+# are gone because the behaviour is gone — replaced by the one below, so that
+# re-introducing the setting has to be a deliberate act rather than a silent one.
 
 
-def test_self_host_posture_warns_when_no_trusted_proxy_is_declared(caplog):
-    """Demoted from a hard failure — it must still be audible."""
+def test_nothing_warns_about_trusted_proxy_ips_any_more(caplog):
+    """Its reader (POST /v1/waitlist) is gone, so the warning is too. Nothing in
+    the codebase is IP-keyed now — the rate limiter is keyed on agent_id."""
     with caplog.at_level("WARNING"):
-        warn_self_host_posture(
-            Settings(environment="dev", moderation_gate_enabled=True, trusted_proxy_ips="")
-        )
-    assert "trusted_proxy_ips" in caplog.text
-
-
-def test_the_proxy_warning_names_the_waitlist_not_the_rate_limiter(caplog):
-    """The old text claimed the rate limiter collapses to one shared bucket.
-
-    False: enforce_rate_limit is agent-keyed (rate_limit_counters is keyed on
-    agent_id, not IP). The only consumer of trusted_proxy_ips is the public
-    waitlist form's IP throttle. Telling a self-hoster their agent rate limiting
-    is broken when it is not sends them debugging the wrong subsystem.
-    """
-    with caplog.at_level("WARNING"):
-        warn_self_host_posture(
-            Settings(environment="dev", moderation_gate_enabled=True, trusted_proxy_ips="")
-        )
-    assert "waitlist" in caplog.text
-    assert "shared bucket" not in caplog.text
-
-
-def test_self_host_posture_is_quiet_when_a_proxy_is_declared(caplog):
-    with caplog.at_level("WARNING"):
-        warn_self_host_posture(
-            Settings(environment="dev", moderation_gate_enabled=True,
-                     trusted_proxy_ips="203.0.113.1")
-        )
+        warn_self_host_posture(Settings(environment="dev", moderation_gate_enabled=True))
     assert "trusted_proxy_ips" not in caplog.text
+    assert "waitlist" not in caplog.text
+
+
+def test_a_retired_setting_still_in_a_live_env_does_not_break_the_import():
+    """🔴 The upgrade hazard, pinned.
+
+    Settings is extra='forbid' and reads .env. Deleting the retired
+    trusted_proxy_ips FIELD would make `import app.config` raise for any operator
+    whose .env still carries a real value — which the production ops runbook told
+    them to set — killing the api container on upgrade. CI would not notice: it
+    has no .env. Verified both directions before this test existed: an empty
+    value imports (pydantic-settings skips empty undeclared dotenv keys), a
+    non-empty one raises extra_forbidden.
+    """
+    assert "trusted_proxy_ips" in Settings.model_fields, (
+        "trusted_proxy_ips was deleted. Nothing reads it, but the field must "
+        "remain until no live .env sets it — see the comment in app/config.py."
+    )
+    Settings(trusted_proxy_ips="203.0.113.1")  # must not raise
+
 
 def test_self_host_posture_warns_when_moderation_gate_is_off(caplog):
     with caplog.at_level("WARNING"):

@@ -27,7 +27,6 @@ from app.routers.v1.clarifications import router as clarifications_router
 from app.routers.v1.votes import router as votes_router
 from app.routers.v1.network import router as network_router
 from app.routers.v1.admin import router as admin_router
-from app.routers.v1.waitlist import router as waitlist_router
 from app.routers.v1.knowledge import router as knowledge_router
 from app.services.blind_phase import start_blind_phase_worker, stop_blind_phase_worker
 from app.services.calibration import start_calibration_worker, stop_calibration_worker
@@ -130,8 +129,12 @@ async def rate_limit_headers(request: Request, call_next) -> Response:
     return response
 
 
-# CORS for the browser-facing waitlist form (marketing site → API is cross-origin).
-# Added after the rate-limit middleware so it sits outermost and answers preflights.
+# CORS is OFF unless an operator configures an origin. The one browser-facing
+# endpoint this existed for — the marketing site's waitlist form — was deleted
+# with the rest of that product, and agents and servers send no Origin header.
+# Kept as a mechanism because a self-hoster who builds a browser UI against this
+# API will need it; added after the rate-limit middleware so it sits outermost
+# and answers preflights.
 _cors_origins = [o.strip() for o in settings.cors_allow_origins.split(",") if o.strip()]
 if _cors_origins:
     app.add_middleware(
@@ -160,7 +163,6 @@ app.include_router(clarifications_router)
 app.include_router(votes_router)
 app.include_router(network_router)
 app.include_router(admin_router)
-app.include_router(waitlist_router)
 app.include_router(knowledge_router)
 
 

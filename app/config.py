@@ -137,18 +137,33 @@ class Settings(BaseSettings):
     haiku_input_price_per_mtok: float = 1.0   # Claude Haiku 4.5 input price
     haiku_output_price_per_mtok: float = 5.0  # Claude Haiku 4.5 output price
 
-    # ─── Trusted reverse proxies ───────────────────────────────────────────────
-    # Comma-separated IPs of proxies we sit behind (Cloudflare/Hetzner edge).
-    # X-Forwarded-For is honoured ONLY when the direct peer is in this set;
-    # otherwise XFF is attacker-controlled and ignored. Empty = trust none (use
-    # the real peer). Set in beta/prod .env to the actual edge IP(s).
+    # ─── Trusted reverse proxies — RETIRED 2026-08-03, kept only for upgrades ──
+    # 🔴 DO NOT DELETE THIS FIELD, even though nothing reads it.
+    #
+    # Its only reader was POST /v1/waitlist, removed with the rest of the
+    # pre-launch marketing surface, along with the preflight warning that named
+    # it. The *behaviour* is gone. The *field* has to stay, because Settings is
+    # extra='forbid' and reads .env: an existing deployment that set a real
+    # value — which the production ops runbook told operators to do — would fail
+    # `import app.config` outright and take the service down on upgrade.
+    #
+    # Verified, not assumed: `TRUSTED_PROXY_IPS=` (empty) imports fine, because
+    # pydantic-settings skips empty undeclared dotenv keys, but
+    # `TRUSTED_PROXY_IPS=203.0.113.1` raises extra_forbidden. CI would stay green
+    # either way — it has no .env. Same defect class as C-1/C-3, in reverse.
+    #
+    # Safe to drop once no live .env carries it.
     trusted_proxy_ips: str = ""
 
     # ─── CORS (browser-facing endpoints) ──────────────────────────────────────
-    # Comma-separated origins allowed to call the API from a browser. Only the
-    # public waitlist form is browser-facing (the marketing site); agents and
-    # servers don't send an Origin header and are unaffected. Empty = CORS off.
-    cors_allow_origins: str = "https://conclaveai.co,https://www.conclaveai.co"
+    # Comma-separated origins allowed to call the API from a browser.
+    # Empty = CORS off, and empty is correct out of the box: nothing this API
+    # serves is browser-facing any more. Set it only if you build your own UI.
+    #
+    # It used to default to the marketing site's domain, which meant every
+    # self-hoster inherited a cross-origin trust relationship with a domain they
+    # do not control.
+    cors_allow_origins: str = ""
 
     # ─── Agent key lifetime ───────────────────────────────────────────────────
     # Days until a minted agent key expires. 0 = never expires, and it is the

@@ -74,20 +74,19 @@ def warn_self_host_posture(settings) -> None:
     immediately unless environment == 'production', while these must be heard
     everywhere. main.py calls both, in that order.
 
-    Two of these were HARD production failures until 2026-08-02. Both were
-    demoted here because both made ENVIRONMENT=production unbootable for the
-    self-hoster the free release targets — the moderation gate needs a paid
-    LLM, and a LAN deployment has no reverse proxy to declare. Demoting a
-    control must not mean deleting it, so both still warn, in every
+    The moderation-gate warning was a HARD production failure until 2026-08-02.
+    It was demoted here because it made ENVIRONMENT=production unbootable for
+    the self-hoster the free release targets — the gate needs a paid LLM.
+    Demoting a control must not mean deleting it, so it still warns, in every
     environment, which is strictly more reachable than the hard check was.
+
+    A trusted_proxy_ips warning also lived here and is GONE, not demoted: the
+    setting's only reader was the public waitlist route, deleted 2026-08-03 with
+    the rest of the pre-launch marketing surface. Warning an operator to
+    configure a setting nothing reads, for an endpoint that no longer exists, is
+    worse than silence. Nothing in the codebase is IP-keyed now — the rate
+    limiter is keyed on agent_id.
     """
-    if not settings.trusted_proxy_ips:
-        logger.warning(
-            "preflight: trusted_proxy_ips is empty — X-Forwarded-For is ignored, so the "
-            "public waitlist form's per-IP throttle sees your proxy's address instead of "
-            "the caller's. Agent rate limiting is unaffected (it is keyed on agent_id, "
-            "not IP). Set TRUSTED_PROXY_IPS to the edge IP(s) if you front this with a proxy"
-        )
     if not settings.moderation_gate_enabled:
         logger.warning(
             "preflight: moderation_gate_enabled is False — the structural pre-checks "
