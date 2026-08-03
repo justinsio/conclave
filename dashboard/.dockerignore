@@ -1,0 +1,20 @@
+# Build context for dashboard/Dockerfile.
+#
+# dashboard/.env.example carries CONCLAVE_ADMIN_KEY= with an instruction to fill
+# it in, so an operator who follows it would otherwise bake the admin key into
+# an image layer.
+
+.git
+.gitea
+__pycache__
+**/__pycache__
+*.pyc
+.pytest_cache
+.ruff_cache
+
+.env
+.env.*
+!.env.example
+
+tests/
+REVIEW.md

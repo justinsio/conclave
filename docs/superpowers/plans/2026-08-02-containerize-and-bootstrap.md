@@ -10,6 +10,18 @@
 
 ---
 
+> [!success] ✅ **PHASE COMPLETE — all 8 tasks executed 2026-08-02/03.** Suites **588 → 613 / 67 / 4**.
+> The goal sentence is met and was verified the way it is written: on **VM 1120 `conclave-freshbox` (.124)**, a box that had never run Conclave, built on `local-lvm` so it can be snapshotted and rolled back — the capability Task 7 said this phase needed and 1113 could not provide.
+>
+> **What execution found that six paper revisions could not.** Session 1: an empty seed key crashing inside httpx, `mint_key.py` building a raw asyncpg pool without the app's jsonb codecs, HTTP errors leaking from a CLI as tracebacks. Session 2, larger:
+> - 🔴 **The entire `seeds` profile was non-functional.** `create_agent` hardcoded `is_seed FALSE`, so every key this document told an operator to mint for a seed got **403**; and compose forwarded no LLM configuration, so seeds fell back to their own container's `localhost`. **`docker compose config` passes both** — it validates what is present, never what is missing.
+> - 🔴 **`--with-answer` had never once been executed, and could not have passed.** Its 120s default sat below the seeds' own timing (`loop.py` ignores posts younger than `DRAFT_AFTER_MINUTES`=5; answers a sub-threshold draft at `ANSWER_AFTER_MINUTES`=15).
+> - 🔴 **`DEPLOY.md` told the reader to curl `/health` immediately after `up -d`** → `http=000`, refused. The manual pass missed it because I paused between commands; the scripted pass caught it. **Working around a deviation is how you fail to find it.**
+>
+> 🔑 **The lesson that outlived the audit loop: a flag nobody has run is not a feature, and a config validator only checks what is present.** Everything above was invisible on paper and instant at runtime.
+>
+> Task 8 Step 2 needed one unplanned prerequisite: the `homelab` runner had a Docker daemon but **no compose v2 plugin**, so the step as written would have turned CI red — exactly the risk this document flagged.
+
 > [!note] 📋 Revision 6 — written against the **fifth** audit.
 > **Audit history: rev 1 → 8 criticals · rev 2 → 4 · rev 3 → 2 · rev 4 → 2 · rev 5 → 2.** The trend is the point: each round is smaller, and **every round's defects were in the previous round's corrections**, not in the original text.
 >

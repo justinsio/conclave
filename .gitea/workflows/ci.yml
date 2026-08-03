@@ -4,13 +4,57 @@ on:
     # feat/** included deliberately: work happens on feature branches, and a
     # master-only trigger means a branch can never be proven green before merge.
     branches: [master, 'feat/**']
+    # A full run is ~26 minutes on this runner (measured: run #61, 10:01 -> 10:27).
+    # Three docs-only commits in one day cost ~78 minutes of runner time to prove
+    # that markdown did not break Python.
+    #
+    # 🔑 paths-ignore, NOT paths. They fail in opposite directions:
+    #   paths:        an ALLOWLIST — a pattern that matches nothing means CI NEVER RUNS.
+    #   paths-ignore: a DENYLIST  — a pattern that matches nothing means CI ALWAYS RUNS.
+    # Only the second is safe to get wrong. A skip is granted only when EVERY
+    # changed file in the push matches, so one .py alongside ten .md still runs.
+    #
+    # Every entry below is documentation. Verified 2026-08-03 that no markdown
+    # file in this repo is load-bearing: the only file-reading setting is
+    # `rules_file` (app/config.py), which defaults to "" and ships empty in
+    # .env.example, so nothing in the suites reads a .md.
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+      - 'LICENSE'
   pull_request:
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+      - 'LICENSE'
 
 jobs:
   test:
     runs-on: homelab
     steps:
       - uses: actions/checkout@v4
+
+      - name: Validate compose file
+        # Verified on this runner 2026-08-03 (Docker 20.10.24, Compose 5.3.1):
+        #   no .env            -> exit 1  "POSTGRES_PASSWORD variable is not set"
+        #   valid + throwaway  -> exit 0
+        #   broken compose.yaml-> exit 1  "services.api.ports must be a array"
+        # The third case is the one that matters: a validation step that cannot
+        # fail is decoration.
+        run: |
+          # Written as .env, NOT passed via --env-file. --env-file replaces only
+          # the INTERPOLATION source; compose still stats the literal `env_file: .env`
+          # path that api and migrate declare, and errors "env file not found".
+          # One file satisfies both. .env is gitignored, so nothing leaks.
+          printf 'POSTGRES_PASSWORD=ci-throwaway\nADMIN_API_KEY=ci-throwaway\n' > .env
+          # trap, not a trailing rm: on failure the shell exits before any later
+          # line, and a stray .env in a persistent self-hosted workspace would be
+          # picked up by conftest's load_dotenv() on the next run.
+          trap 'rm -f .env' EXIT
+          # > /dev/null is REQUIRED, not tidiness. `config` inlines env_file
+          # contents verbatim — measured: 7 occurrences of the resolved secrets
+          # in stdout on this exact file. A CI log is the last place those belong.
+          docker compose config > /dev/null
 
       - name: Set up venv (Python 3.12)
         run: |

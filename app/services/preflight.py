@@ -12,6 +12,16 @@ logger = logging.getLogger(__name__)
 
 _DEFAULT_ADMIN_KEY = "dev-admin-key"
 
+# Rejected as a SET, not one literal. .env.example ships a placeholder that is
+# NOT "dev-admin-key", so a single-string check passed a value published in the
+# repository. Any placeholder anyone might plausibly ship belongs here.
+_PLACEHOLDER_ADMIN_KEYS = frozenset({
+    _DEFAULT_ADMIN_KEY,
+    "change-me-to-a-strong-secret",
+    "change-me",
+    "changeme",
+})
+
 
 def assert_production_safety(settings) -> None:
     """No-op unless settings.environment == 'production'.
@@ -23,23 +33,19 @@ def assert_production_safety(settings) -> None:
         return
 
     failures: list[str] = []
-    if not settings.admin_api_key or settings.admin_api_key == _DEFAULT_ADMIN_KEY:
+    if not settings.admin_api_key or settings.admin_api_key in _PLACEHOLDER_ADMIN_KEYS:
         failures.append(
-            "admin_api_key is unset or still the dev default — set a strong ADMIN_API_KEY"
+            "admin_api_key is unset or still a shipped placeholder — set a strong ADMIN_API_KEY"
         )
-    if not settings.moderation_gate_enabled:
-        failures.append("moderation_gate_enabled is False — set MODERATION_GATE_ENABLED=true")
     if not settings.rate_limit_enabled:
         failures.append("rate_limit_enabled is False — set RATE_LIMIT_ENABLED=true")
-    if not settings.anthropic_api_key:
+    # Required only when the gate is on. Requiring it unconditionally made
+    # ENVIRONMENT=production unbootable for a bring-your-own-LLM self-hoster:
+    # the gate needs a paid provider, so "no gate" and "no key" travel together.
+    if settings.moderation_gate_enabled and not settings.anthropic_api_key:
         failures.append(
-            "anthropic_api_key is empty — the moderation gate needs ANTHROPIC_API_KEY"
-        )
-    if not settings.trusted_proxy_ips:
-        failures.append(
-            "trusted_proxy_ips is empty — behind a proxy this collapses the rate limiter "
-            "to one shared bucket (all clients share the proxy's IP); set TRUSTED_PROXY_IPS "
-            "to the edge/proxy IP(s)"
+            "anthropic_api_key is empty — the moderation gate needs ANTHROPIC_API_KEY "
+            "(or set MODERATION_GATE_ENABLED=false to run without it)"
         )
 
     if failures:
@@ -64,15 +70,22 @@ def assert_production_safety(settings) -> None:
 def warn_self_host_posture(settings) -> None:
     """Posture warnings that must reach an operator in ANY environment.
 
-    Deliberately NOT part of assert_production_safety. That function returns
-    immediately unless environment == 'production', and inside production a
-    disabled moderation gate is already a HARD failure that raises before the
-    soft-warning section runs — so this warning placed there would be
-    unreachable in both directions.
+    Deliberately NOT part of assert_production_safety: that function returns
+    immediately unless environment == 'production', while these must be heard
+    everywhere. main.py calls both, in that order.
 
-    The operator who needs to hear it is exactly the self-hoster running
-    without ENVIRONMENT=production, who has deliberately or accidentally
-    turned the paid gate off and should know what that leaves them with.
+    The moderation-gate warning was a HARD production failure until 2026-08-02.
+    It was demoted here because it made ENVIRONMENT=production unbootable for
+    the self-hoster the free release targets — the gate needs a paid LLM.
+    Demoting a control must not mean deleting it, so it still warns, in every
+    environment, which is strictly more reachable than the hard check was.
+
+    A trusted_proxy_ips warning also lived here and is GONE, not demoted: the
+    setting's only reader was the public waitlist route, deleted 2026-08-03 with
+    the rest of the pre-launch marketing surface. Warning an operator to
+    configure a setting nothing reads, for an endpoint that no longer exists, is
+    worse than silence. Nothing in the codebase is IP-keyed now — the rate
+    limiter is keyed on agent_id.
     """
     if not settings.moderation_gate_enabled:
         logger.warning(

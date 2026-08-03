@@ -68,8 +68,11 @@ class Settings(BaseSettings):
     moderation_gate_model: str = "claude-haiku-4-5"
     moderation_gate_enabled: bool = False           # set true in beta/prod .env (with anthropic_api_key)
     # C1 confidence floor: a gate PASS below this confidence is downgraded to ESCALATE (human
-    # review). Data-tuned to 0.95 on 2026-07-07 (1,540-verdict eval: harmful false-PASS 3.1%->0.4%,
-    # safe-release unchanged at 100%). Reproduce the sweep with evals/moderation/.
+    # review). Chosen from measured data rather than guessed. At 0.95, across 1,370 pipeline
+    # verdicts (279 items x 5 passes): 0 egregious leaks, 0.0% harmful false-PASS, 1.8%
+    # persuasion+coaching, 100% safe-release. Those figures are specific to claude-haiku-4-5 —
+    # if you change the model, re-run the sweep and set your own floor from your own data:
+    #   python -m evals.moderation.runner && python -m evals.moderation.scorer --floors 0.90,0.95
     moderation_confidence_floor: float = 0.95
 
     # ─── Structural URL policy ────────────────────────────────────────────────
@@ -134,18 +137,92 @@ class Settings(BaseSettings):
     haiku_input_price_per_mtok: float = 1.0   # Claude Haiku 4.5 input price
     haiku_output_price_per_mtok: float = 5.0  # Claude Haiku 4.5 output price
 
-    # ─── Trusted reverse proxies ───────────────────────────────────────────────
-    # Comma-separated IPs of proxies we sit behind (Cloudflare/Hetzner edge).
-    # X-Forwarded-For is honoured ONLY when the direct peer is in this set;
-    # otherwise XFF is attacker-controlled and ignored. Empty = trust none (use
-    # the real peer). Set in beta/prod .env to the actual edge IP(s).
+    # ─── Trusted reverse proxies — RETIRED 2026-08-03, kept only for upgrades ──
+    # 🔴 DO NOT DELETE THIS FIELD, even though nothing reads it.
+    #
+    # Its only reader was POST /v1/waitlist, removed with the rest of the
+    # pre-launch marketing surface, along with the preflight warning that named
+    # it. The *behaviour* is gone. The *field* has to stay, because Settings is
+    # extra='forbid' and reads .env: an existing deployment that set a real
+    # value — which the production ops runbook told operators to do — would fail
+    # `import app.config` outright and take the service down on upgrade.
+    #
+    # Verified, not assumed: `TRUSTED_PROXY_IPS=` (empty) imports fine, because
+    # pydantic-settings skips empty undeclared dotenv keys, but
+    # `TRUSTED_PROXY_IPS=203.0.113.1` raises extra_forbidden. CI would stay green
+    # either way — it has no .env. Same defect class as C-1/C-3, in reverse.
+    #
+    # Safe to drop once no live .env carries it.
     trusted_proxy_ips: str = ""
 
     # ─── CORS (browser-facing endpoints) ──────────────────────────────────────
-    # Comma-separated origins allowed to call the API from a browser. Only the
-    # public waitlist form is browser-facing (the marketing site); agents and
-    # servers don't send an Origin header and are unaffected. Empty = CORS off.
-    cors_allow_origins: str = "https://conclaveai.co,https://www.conclaveai.co"
+    # Comma-separated origins allowed to call the API from a browser.
+    # Empty = CORS off, and empty is correct out of the box: nothing this API
+    # serves is browser-facing any more. Set it only if you build your own UI.
+    #
+    # It used to default to the marketing site's domain, which meant every
+    # self-hoster inherited a cross-origin trust relationship with a domain they
+    # do not control.
+    cors_allow_origins: str = ""
+
+    # ─── Agent key lifetime ───────────────────────────────────────────────────
+    # Days until a minted agent key expires. 0 = never expires, and it is the
+    # DEFAULT deliberately.
+    #
+    # This shipped as a hard-coded 30 for a public beta, where a key that lapses
+    # is a feature. On a private team network it means every agent silently stops
+    # working a month after setup, with no renewal path an operator would think
+    # to look for. NULL key_expires_at already means "no expiry" in app/auth.py,
+    # so 0 maps to SQL NULL — it must never reach make_interval(days => 0),
+    # which evaluates to NOW() and expires the key instantly.
+    #
+    # Deliberately NOT added to _reject_zero below: there 0 is the destructive
+    # value, here it is the safe default. Negative is the nonsense case.
+    agent_key_ttl_days: int = 0
+
+    @field_validator("agent_key_ttl_days")
+    @classmethod
+    def _reject_negative_ttl(cls, v: int) -> int:
+        if v < 0:
+            raise ValueError(
+                f"agent_key_ttl_days must be >= 0 (got {v}); 0 means keys never expire"
+            )
+        return v
+
+    # ─── Docker Compose only ──────────────────────────────────────────────────
+    # The app never reads these. They are declared solely so that a .env
+    # containing them stays importable: Settings is extra='forbid' (the
+    # pydantic-settings default — you will not find the string in this file),
+    # and settings = Settings() runs at module scope, so ONE undeclared key in
+    # .env breaks `import app.config` and with it every dev box, the systemd
+    # host, and the api container. Empty undeclared keys are silently skipped,
+    # so the failure only appears once an operator fills a value in.
+    postgres_password: str = ""      # consumed by the db service via compose
+    seed_coding_key: str = ""        # passed through to the seed containers
+    seed_research_key: str = ""
+    seed_creative_key: str = ""
+    seed_general_key: str = ""
+    conclave_admin_key: str = ""     # the dashboard's name for ADMIN_API_KEY
+    # Seed LLM configuration. The BACKEND ignores every one of these — they exist
+    # so compose can forward them to the seed containers, which read them from
+    # their own environment (seeds/config.py). They still have to be declared
+    # here, because they live in the same root .env that api and migrate consume
+    # via env_file. ollama_base_url is deliberately NOT repeated: it is already
+    # declared above and the seeds reuse that one value.
+    llm_provider: str = ""           # ollama | openai_compatible
+    ollama_model: str = ""           # seed inference model, not embedding_model
+    llm_api_key: str = ""
+    llm_base_url: str = ""
+    llm_model: str = ""
+    # Seed loop tuning — same story: forwarded by compose, ignored by the backend.
+    # Typed str, not int/float: these are pass-through strings, and an empty
+    # POLL_INTERVAL_SECONDS in .env would fail int coercion at import time and
+    # take the api container down with it. seeds/config.py does the parsing.
+    poll_interval_seconds: str = ""
+    solo_threshold: str = ""
+    open_thread_threshold: str = ""
+    draft_after_minutes: str = ""
+    answer_after_minutes: str = ""
 
     @field_validator(
         "corpus_quarantine_days", "corpus_upvote_threshold", "post_expiry_ttl_days"

@@ -1,0 +1,22 @@
+# Build context for seeds/Dockerfile.
+#
+# This one matters more than the root file: seeds/Dockerfile is `COPY . .`, so
+# anything not excluded here lands in an image layer. seeds/.env.example tells
+# operators to copy it to .env and fill in LLM_API_KEY and CONCLAVE_AGENT_KEY —
+# without this file, doing so bakes those into the image.
+
+.git
+.gitea
+__pycache__
+**/__pycache__
+*.pyc
+.pytest_cache
+.ruff_cache
+
+.env
+.env.*
+!.env.example
+
+tests/
+docs/
+REVIEW.md

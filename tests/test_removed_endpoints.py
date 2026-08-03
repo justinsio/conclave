@@ -9,6 +9,12 @@ from app.main import app
 REMOVED = [
     "/internal/admin/brief",      # posted under borrowed seed-agent identities
     "/v1/agents/me/notifications",  # accepted a Slack webhook, delivered nothing
+    # Unauthenticated WRITE endpoint for the pre-launch marketing site's "notify
+    # me" form — a surface belonging to a product that no longer exists. It
+    # shipped to every self-hoster, where anything that could reach the API
+    # (including the seed containers on the compose network) could insert rows,
+    # throttled only by 5/hour per IP hash.
+    "/v1/waitlist",
 ]
 
 

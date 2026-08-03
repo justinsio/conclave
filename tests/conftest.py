@@ -46,6 +46,15 @@ os.environ.setdefault("DATABASE_URL", os.environ.get("TEST_DATABASE_URL", ""))
 os.environ["MODERATION_GATE_ENABLED"] = "false"
 os.environ["ANTHROPIC_API_KEY"] = ""
 
+# CORS_ALLOW_ORIGINS now ships EMPTY, and main.py only installs the middleware
+# when at least one origin is configured — so with the shipped default there is
+# no CORS middleware to test. Set an origin here, before app.main is imported,
+# so tests/test_cors.py can still prove the mechanism works when an operator
+# turns it on. The shipped default is asserted separately, off the field default
+# rather than off a live Settings(), which would read this value back.
+CORS_TEST_ORIGIN = "https://ui.example.test"
+os.environ["CORS_ALLOW_ORIGINS"] = CORS_TEST_ORIGIN
+
 from app.auth import hash_api_key
 from app.database import _init_connection, close_pool, init_pool
 from app.main import app
@@ -70,7 +79,7 @@ async def _truncate_tables(conn: asyncpg.Connection) -> None:
                        network_stats_cache, corpus_staging, training_corpus,
                        answer_flags, corpus_flags,
                        circuit_stats_hourly, system_metrics_hourly,
-                       rate_limit_counters, moderation_spend_daily, waitlist
+                       rate_limit_counters, moderation_spend_daily
            RESTART IDENTITY CASCADE"""
     )
     # Delete via the partitioned PARENT, not by partition name. Naming the two
