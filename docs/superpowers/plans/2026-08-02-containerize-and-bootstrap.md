@@ -10,12 +10,17 @@
 
 ---
 
-> [!note] 📋 Revision 3 — written against the rev-2 re-audit. **Not yet re-audited.**
-> Rev 2 was audited and came back with 4 criticals + 13 importants; **three of the eight rev-1 criticals were not actually closed, and one rev-2 "fix" created a worse hole than the defect it replaced.** Rev 3 addresses all of them. SEC-1 was fixed separately in code first (`fa0411c`) rather than deferred into this plan.
+> [!note] 📋 Revision 4 — written against the **third** audit. Not yet re-audited.
+> **Audit history: rev 1 → 8 criticals · rev 2 → 4 · rev 3 → 2.** The trend is the point: each round is smaller, and **every round's defects were in the previous round's corrections**, not in the original text.
 >
-> 🔑 **The lesson that produced rev 3: a fix is unaudited code.** Rev 2 declared "every verification step must be able to fail" and then shipped one that couldn't (Task 2 Step 6), plus a security regression (Task 0 Step 3). **Audit the corrections, not just the original.**
+> - Rev 2's criticals: three rev-1 findings *discussed but not fixed*, plus a **security regression created by a fix** (shipping the admin key empty, when an empty key made `Authorization: Admin ` authenticate).
+> - Rev 3's criticals: an `ENVIRONMENT=production` default that **would not boot**, because the decision was made without the `.env.example` line that makes it true; and a CI fix that **left CI red**, because `--env-file` does not satisfy `env_file:`.
 >
-> The full rev-2 findings are preserved below because several are live constraints, not historical notes.
+> 🔑 **The standing lesson: a fix is unaudited code.** Rev 2 declared "every verification step must be able to fail" and shipped one that couldn't. Rev 3 wrote a `.dockerignore` probe with no build guard — the same defect, two paragraphs below its own warning against it. **A decision is not true until the file it depends on matches it, and a correction is not done until something can prove it.**
+>
+> SEC-1 was fixed in code (`fa0411c`) rather than carried in this plan. Baseline is now **579/65/4**.
+>
+> The rev-2 findings are preserved below; several are live constraints, not history.
 
 > [!warning] 🛑 REV 2 findings — the record (all fixed in rev 3 unless marked)
 > **Three of the eight rev-1 criticals are not actually closed, and one rev-2 "fix" created a worse hole than the defect it replaced.** A rev 3 is required. All four criticals below were independently re-verified.
@@ -38,7 +43,7 @@
 > ### 🔴 C-4 — the TTL decision 500s on create and 404s on a successful extend
 > The SQL analysis was right; it stops one layer too early. `BetaUserCreated.key_expires_at` is `datetime`, **not** `datetime | None` (`admin_beta_users.py:40`) — writing NULL raises an unhandled `ValidationError` → **500 on every mint under the new default**. And extend uses `None` as its row-not-found sentinel (`if new_expiry is None: raise HTTPException(404)`), so a **successful** extend of a never-expiring key returns `404 user_not_found` after modifying the row.
 > ✏️ **My SQL citation was also wrong:** the extend site is `COALESCE(key_expires_at, NOW()) + make_interval(days => $2)`, not bare `make_interval` — a *different* trap from the one I described.
-> ✏️ **And "expected 579/65/4 (the baseline moved with `fa0411c`) plus new tests" is false** — `tests/test_beta_accounts.py:93,144,167` and `tests/test_admin_audit_log.py:53,66,71` all assert an expiry exists. At least three break.
+> ✏️ **And "expected 575/65/4 plus new tests" is false** — `tests/test_beta_accounts.py:93,144,167` and `tests/test_admin_audit_log.py:53,66,71` all assert an expiry exists. At least three break. *(575 was the baseline at the time; it is 579 after `fa0411c`.)*
 >
 > ### 🔴 C-2 — the ENVIRONMENT decision resolves 1 of 3 blockers and still names no value
 > `preflight.py` hard-fails production on **five** things. The decision relaxed only `anthropic_api_key` and then claimed "the other production controls stay unconditional" while naming just two of the remaining four. Still blocking the same user: line 30 `moderation_gate_enabled` — which makes the *"private team runs with the gate off"* posture the decision explicitly endorses **impossible under `production`** — and line 38 `trusted_proxy_ips`, which a LAN self-hoster without a proxy does not have. **The plan still never states which `ENVIRONMENT` value ships**, yet Task 6 Step 2 tells the writer to document "whatever Task 0 Step 2 settles on." **Fix:** decide all five. `warn_self_host_posture` (`preflight.py:64`) already exists and is the right home for the gate check.
