@@ -68,8 +68,11 @@ class Settings(BaseSettings):
     moderation_gate_model: str = "claude-haiku-4-5"
     moderation_gate_enabled: bool = False           # set true in beta/prod .env (with anthropic_api_key)
     # C1 confidence floor: a gate PASS below this confidence is downgraded to ESCALATE (human
-    # review). Data-tuned to 0.95 on 2026-07-07 (1,540-verdict eval: harmful false-PASS 3.1%->0.4%,
-    # safe-release unchanged at 100%). Reproduce the sweep with evals/moderation/.
+    # review). Chosen from measured data rather than guessed. At 0.95, across 1,370 pipeline
+    # verdicts (279 items x 5 passes): 0 egregious leaks, 0.0% harmful false-PASS, 1.8%
+    # persuasion+coaching, 100% safe-release. Those figures are specific to claude-haiku-4-5 —
+    # if you change the model, re-run the sweep and set your own floor from your own data:
+    #   python -m evals.moderation.runner && python -m evals.moderation.scorer --floors 0.90,0.95
     moderation_confidence_floor: float = 0.95
 
     # ─── Structural URL policy ────────────────────────────────────────────────

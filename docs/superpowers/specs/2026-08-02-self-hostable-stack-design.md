@@ -69,7 +69,7 @@ conclave/
 | `migrate` | default | One-shot. Runs `scripts/apply_migrations.py`, which needs only `DATABASE_URL`, is idempotent, and exits non-zero when it is unset. Waits for `db` healthy, then exits 0. |
 | `api` | default | Built from `deploy/Dockerfile`. `--workers 1` baked into the command. Gated on `migrate` completing successfully. Carries a healthcheck hitting `/health`, so `docker compose ps` reports something truthful and the smoke test has a condition to wait on. |
 | `seed-coding`, `seed-research`, `seed-creative`, `seed-general` | `seeds` | Built from `seeds/`. Preserve the existing hardening: `read_only: true`, `user: seed`, `tmpfs: [/tmp]`. |
-| `dashboard` | `dashboard` | Published on `127.0.0.1:8503` per R3 — operator-only, reached over an SSH tunnel. |
+| `dashboard` | `dashboard` | ✏️ **Corrected during execution.** Runs with `network_mode: service:api`, because `dashboard/api_client.py:37` validates the base URL at *import* and rejects any non-localhost `http://` — sharing the api container's network namespace satisfies that guard as written instead of weakening it. **Consequence: the dashboard declares no `ports:` of its own** (the daemon rejects `ports:` combined with `network_mode:`, and neither `compose config` nor `--dry-run up` catches it), so the `127.0.0.1:8503` publish lives on the **`api`** service. It is loopback-only on the *host*, but reachable **unauthenticated from every container on the compose network, including the seeds** — "binds loopback" does not mean the same thing inside a container. |
 
 **Port binding.** Containers listen on `0.0.0.0` *inside* the container; compose publishes to
 `127.0.0.1:8000` on the host. This is equivalent to the systemd unit's `--host 127.0.0.1`, not a
@@ -99,7 +99,13 @@ reachable beyond localhost, which is the split-role ingress topology in the prod
 >
 > 🔑 **This is find #10 in the recurring pattern: controls written for a public multi-tenant service, inapplicable to a private team network where the operator controls every agent.**
 >
-> **✅ Decided 2026-08-02 — each hard control must be coherent with what it protects.** The moderation provider key is required **only when `moderation_gate_enabled` is true**, not unconditionally. A private team that trusts its own agents runs with the gate off — supported, not accidental. Placeholder credentials are rejected as a *set*, not one literal string, and `.env.example` ships those values **empty** so the guards actually fire.
+> **✅ Decided 2026-08-02 — each hard control must be coherent with what it protects.** The moderation provider key is required **only when `moderation_gate_enabled` is true**, not unconditionally. A private team that trusts its own agents runs with the gate off — supported, not accidental. Placeholder credentials are rejected as a *set*, not one literal string.
+>
+> 🔴 ✏️ **CORRECTED 2026-08-03 — this decision originally ended "and `.env.example` ships those values **empty** so the guards actually fire." That was wrong in both halves, and following it reintroduces a security regression.** `${VAR:?}` is a **compose interpolation** guard; `ADMIN_API_KEY` reaches the app through `env_file`, never interpolation, so it would never have fired. And an empty admin key was at the time the *most dangerous* possible value — `secrets.compare_digest("", "")` is `True`, so `Authorization: Admin ` (trailing space, no key) authenticated as full admin. That hole was live in shipped code and is fixed in `fa0411c`; `require_admin` now rejects an empty or whitespace-only configured key in every environment, before parsing the credential.
+> **What actually ships:** `ADMIN_API_KEY=change-me-to-a-strong-secret` — a placeholder the widened rejection set catches at boot. `POSTGRES_PASSWORD=` ships empty, because that one *is* consumed by compose interpolation, so `${POSTGRES_PASSWORD:?}` genuinely fires.
+> 🔑 **A guard only protects the path it is actually on.** Check which mechanism reads a variable before relying on a guard attached to a different one.
+>
+> ✅ **`.env.example` ships `ENVIRONMENT=production`** (and `RATE_LIMIT_ENABLED=true`, without which production refuses to boot). Under `dev` the preflight returns immediately and none of the hard controls run — which is how the admin-key hole above stayed reachable. Final dispositions: admin key and rate limiting **hard-fail**; moderation gate and `trusted_proxy_ips` became **warnings** in `warn_self_host_posture`; `anthropic_api_key` is required **only when the gate is enabled**.
 >
 > **✅ Decided 2026-08-02 — the gate suggests a provider, it does not force one.** But it is **not** provider-agnostic today and must not be described as such: `moderation.py:11` imports `AsyncAnthropic` directly, `cost_breaker.py:64` is hardcoded to Haiku pricing (so another model makes the *spend breaker* compute wrong dollars), and the response parser is shaped for Haiku 4.5's fenced JSON (a different shape silently turns every verdict into fail-safe ESCALATE — already a production blocker once). Ship it as: **the gate is optional; if enabled, Claude Haiku 4.5 is what is validated**, with the shipped `evals/moderation/` harness as the means to re-validate any other model. The provider abstraction is post-publish work, not this phase.
 2. `docker compose up -d` → `db`, `migrate`, `api`.
@@ -112,12 +118,27 @@ already invokes `scripts/apply_migrations.py` by path; `python -m scripts.mint_k
 `__init__.py` or a `PYTHONPATH` that nothing else in the project requires. Every script in this
 design is invoked the same way `apply_migrations.py` already is.
 
-**Secrets handling in compose.** One `.env` at the repo root serves both purposes: compose reads it
-for variable substitution, and services take it via `env_file`. It is already gitignored, and
-`.env.example` is protected from that ignore by the `!.env.example` negation added in Phase 0.
-`.env.example` gains `POSTGRES_PASSWORD` and a `DATABASE_URL` pointing at the `db` service, and
-must document which variables the systemd path needs differently (notably a `localhost`
-`DATABASE_URL` instead of the service name).
+**Secrets handling in compose.** One `.env` at the repo root, gitignored, with `.env.example`
+protected from that ignore by the `!.env.example` negation added in Phase 0.
+
+✏️ **Corrected during execution — two details here were wrong:**
+
+- **Only `db`, `migrate` and `api` take `env_file: .env`.** The original text said "services take it
+  via `env_file`" without qualification. The root `.env` holds `ADMIN_API_KEY`, `ANTHROPIC_API_KEY`,
+  `TELEGRAM_BOT_TOKEN` and the Postgres password — handing that to the **seeds**, the component that
+  ingests untrusted network content and drives an LLM, contradicts this design's own claim that a
+  seed's only coupling is `CONCLAVE_API_URL`. Seeds and dashboard get an explicit `environment:`
+  block and nothing else. (`./seeds/.env` is **not** an equal alternative: it is gitignored and
+  nothing creates it, so on a fresh clone every `--profile seeds` command hard-fails.)
+- **`.env.example` does NOT gain a `DATABASE_URL` pointing at the `db` service.** Its value stays on
+  the systemd path (`localhost`); `compose.yaml` sets the container DSN with an explicit
+  `environment:` override on `migrate` and `api`, which is required anyway — without it the API
+  silently points at its own loopback. `.env.example` gains `POSTGRES_PASSWORD` (empty) and the four
+  `SEED_*` keys; `CONCLAVE_ADMIN_KEY` is bridged from `ADMIN_API_KEY` in compose and must never
+  appear there as a second hand-filled copy.
+- **Every compose-only key is declared in `Settings`.** `app/config.py` is `extra='forbid'` by
+  pydantic-settings default, and an undeclared key in `.env` is a hard import failure — but empty
+  undeclared keys are *skipped*, so the break only appears once an operator fills one in.
 
 ## Smoke test
 
@@ -156,7 +177,12 @@ zero-seed mode.
 ## Out of scope (YAGNI)
 
 Bundled Ollama container · published registry images · the Phase 2.6 spend cap · Phase 3.5
-dashboard theming · any CI change beyond repairing paths after the merge · Kubernetes or Swarm.
+dashboard theming · Kubernetes or Swarm.
+
+✏️ **"Any CI change beyond repairing paths after the merge" was removed from this list 2026-08-03.**
+Task 8 adds two deliberately: a `paths-ignore:` filter so docs-only commits stop running the full
+suite (three markdown commits cost ~78 minutes of runner time in one day), and a
+`docker compose config` validation step. Both are in scope; the exclusion is obsolete.
 
 ## Sequencing
 
