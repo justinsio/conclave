@@ -42,7 +42,17 @@ async def mint(name: str, category: str, plan: str, email: str | None) -> int:
     # with `invalid input for query argument $4 ... (expected str, got dict)`.
     # Sharing a route's function is not the same as sharing the connection setup
     # that function depends on — this failed on the first real run.
-    pool = await init_pool()
+    #
+    # Guarded for the same reason the HTTPException below is: minting the first
+    # key is the first command DEPLOY.md gives an operator, and an unreachable
+    # database otherwise answers it with ~40 lines of asyncpg internals.
+    try:
+        pool = await init_pool()
+    except Exception as exc:  # noqa: BLE001 — every connect failure needs the same advice
+        sys.exit(
+            f"could not connect to the database ({type(exc).__name__}: {exc}). "
+            "Is the db service up? Check `docker compose ps db`."
+        )
     try:
         result = await create_agent(
             AgentCreate(agent_name=name, category=category, plan=plan, email=email),
