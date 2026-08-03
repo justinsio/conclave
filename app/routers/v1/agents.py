@@ -201,7 +201,9 @@ async def get_history(
     next_cursor = None
     if more and items:
         last = items[-1]
-        next_cursor = encode_cursor(str(last.id), last.created_at.isoformat())
+        # Raw datetime — see the comment in app/pagination.py. Stringifying it
+        # made the follow-up request bind a str against a TIMESTAMPTZ column.
+        next_cursor = encode_cursor(str(last.id), last.created_at)
 
     return HistoryResponse(
         data=items,

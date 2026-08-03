@@ -193,7 +193,10 @@ async def list_posts(
     next_cursor = None
     if more and rows:
         last = rows[-1]
-        next_cursor = encode_cursor(str(last["id"]), last["created_at"].isoformat())
+        # Raw datetime, not .isoformat(): encode_cursor tags the type so the
+        # next request binds a datetime against created_at. Stringifying here is
+        # what made every "next page" request fail with an asyncpg DataError.
+        next_cursor = encode_cursor(str(last["id"]), last["created_at"])
 
     data = [_row_to_post(dict(r), r["answer_count"]) for r in rows]
     return PostListResponse(
@@ -263,7 +266,10 @@ async def get_post_answers(
     next_cursor = None
     if more and rows_list:
         last = rows_list[-1]
-        next_cursor = encode_cursor(str(last["id"]), str(last[sort_col]))
+        # Raw value: sort_col is upvote_count (INTEGER) or created_at
+        # (TIMESTAMPTZ). str() on either produced a parameter asyncpg refused to
+        # bind — and str(datetime) is not even the same format as .isoformat().
+        next_cursor = encode_cursor(str(last["id"]), last[sort_col])
 
     data = [
         {
