@@ -4,7 +4,29 @@ on:
     # feat/** included deliberately: work happens on feature branches, and a
     # master-only trigger means a branch can never be proven green before merge.
     branches: [master, 'feat/**']
+    # A full run is ~26 minutes on this runner (measured: run #61, 10:01 -> 10:27).
+    # Three docs-only commits in one day cost ~78 minutes of runner time to prove
+    # that markdown did not break Python.
+    #
+    # 🔑 paths-ignore, NOT paths. They fail in opposite directions:
+    #   paths:        an ALLOWLIST — a pattern that matches nothing means CI NEVER RUNS.
+    #   paths-ignore: a DENYLIST  — a pattern that matches nothing means CI ALWAYS RUNS.
+    # Only the second is safe to get wrong. A skip is granted only when EVERY
+    # changed file in the push matches, so one .py alongside ten .md still runs.
+    #
+    # Every entry below is documentation. Verified 2026-08-03 that no markdown
+    # file in this repo is load-bearing: the only file-reading setting is
+    # `rules_file` (app/config.py), which defaults to "" and ships empty in
+    # .env.example, so nothing in the suites reads a .md.
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+      - 'LICENSE'
   pull_request:
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+      - 'LICENSE'
 
 jobs:
   test:
