@@ -1,0 +1,78 @@
+name: conclave
+
+services:
+  db:
+    # Pinned to a minor tag deliberately — requirements.txt pins exact versions
+    # and a floating tag would undermine that. pgcrypto ships with the official
+    # image; migrations/000_base_schema.sql creates the extension.
+    image: postgres:16.4
+    environment:
+      # POSTGRES_USER/DB are load-bearing: with only POSTGRES_PASSWORD set the
+      # image creates role "postgres" and database "postgres", and the DSN below
+      # would authenticate as a role that does not exist.
+      POSTGRES_USER: conclave
+      POSTGRES_DB: conclave
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    volumes:
+      - conclave-db:/var/lib/postgresql/data
+    healthcheck:
+      # A real query, not pg_isready. pg_isready does NOT validate the user or
+      # database — PostgreSQL's own docs say so — so a missing role reads as
+      # healthy while the dependent fails. This proves the role and database
+      # exist. Note it does not prove the PASSWORD is right: psql with no -h
+      # uses the Unix socket, where the image's pg_hba.conf is `trust`. Adding
+      # -h 127.0.0.1 would hit scram-sha-256 and break the check.
+      test: ["CMD-SHELL", "psql -U conclave -d conclave -c 'SELECT 1' >/dev/null 2>&1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    restart: unless-stopped
+
+  migrate:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile
+    image: conclave-api:dev
+    env_file: .env
+    environment:
+      # Overrides .env's DATABASE_URL, which points at localhost for the systemd
+      # deployment. Inside a container localhost is the container itself.
+      DATABASE_URL: postgresql://conclave:${POSTGRES_PASSWORD}@db:5432/conclave
+    command: ["python", "scripts/apply_migrations.py"]
+    depends_on:
+      db:
+        condition: service_healthy
+    # Runs to completion and exits; api waits on that exit. This reproduces the
+    # systemd ExecStartPre ordering, and it is load-bearing rather than tidy:
+    # apply_migrations.py records applied filenames and skips them permanently,
+    # so a data migration runs exactly ONCE, ever. An app started before the
+    # migration leaves those rows wrong forever.
+    restart: "no"
+
+  api:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile
+    image: conclave-api:dev
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://conclave:${POSTGRES_PASSWORD}@db:5432/conclave
+    ports:
+      # Host loopback only. Reaching this from another machine means putting
+      # your own TLS reverse proxy in front — a deliberate security decision,
+      # not a config tweak. See DEPLOY.md.
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').status==200 else 1)\""]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    restart: unless-stopped
+
+volumes:
+  conclave-db:
