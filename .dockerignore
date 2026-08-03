@@ -1,0 +1,31 @@
+# Build context for deploy/Dockerfile.
+#
+# The backend image uses explicit `COPY app/ migrations/ scripts/`, so it cannot
+# pick up a stray file by accident — but the context is still sent to the daemon,
+# and .venv alone is hundreds of megabytes.
+
+.git
+.gitea
+.venv
+.venv-*
+__pycache__
+**/__pycache__
+*.pyc
+.pytest_cache
+.ruff_cache
+
+# Secrets. .env is the operator's live credentials; never ship it.
+.env
+.env.*
+!.env.example
+
+# Sub-projects have their own images and their own build contexts.
+seeds/
+dashboard/
+
+# Not needed at runtime.
+tests/
+evals/
+docs/
+deploy/
+REVIEW.md
