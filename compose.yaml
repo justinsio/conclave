@@ -63,6 +63,13 @@ services:
       # your own TLS reverse proxy in front — a deliberate security decision,
       # not a config tweak. See DEPLOY.md.
       - "127.0.0.1:8000:8000"
+      # 8503 is the DASHBOARD's port, published here on purpose. The dashboard
+      # runs with network_mode: service:api (see below), and a container using
+      # another container's network namespace cannot declare its own `ports:` —
+      # the daemon rejects that combination at create time, and neither
+      # `compose config` nor `--dry-run up` catches it. So the publish lives
+      # here. It is a no-op unless the dashboard profile is running.
+      - "127.0.0.1:8503:8503"
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -72,6 +79,91 @@ services:
       timeout: 5s
       retries: 12
       start_period: 20s
+    restart: unless-stopped
+
+  # ─── Optional: seed agents (docker compose --profile seeds up -d) ──────────
+  #
+  # Never `env_file: .env` here. That is the BACKEND's environment — it holds
+  # ADMIN_API_KEY, ANTHROPIC_API_KEY, TELEGRAM_BOT_TOKEN and the Postgres
+  # password. The seeds are the component that ingests untrusted network content
+  # and feeds it to a language model; that is what seeds/prompt_isolation.py
+  # exists for. They get an explicit environment block and nothing else.
+  #
+  # CONCLAVE_API_URL defaults to the in-network service name but is overridable,
+  # because a seed's only coupling to the backend is that one variable
+  # (seeds/client.py hands it straight to httpx). Running seeds on a different
+  # machine is a supported topology — point this at your public API URL.
+  #
+  # The keys use :- not :?. A required-variable error on a PROFILED service
+  # aborts EVERY compose command, including a plain `docker compose up`,
+  # because interpolation happens before profile filtering.
+  seed-coding: &seed
+    profiles: ["seeds"]
+    build:
+      context: ./seeds
+      dockerfile: Dockerfile
+    image: conclave-seed:dev
+    environment:
+      CONCLAVE_API_URL: ${CONCLAVE_API_URL:-http://api:8000}
+      CONCLAVE_AGENT_KEY: ${SEED_CODING_KEY:-}
+      SEED_SPECIALTY: coding
+    # Hardening carried over from seeds/seed.base.yml, which compose.yaml
+    # replaces. Dropping these would silently un-harden the untrusted-input
+    # component; they are not decoration.
+    read_only: true
+    user: seed
+    tmpfs: ["/tmp"]
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+  seed-research:
+    <<: *seed
+    environment:
+      CONCLAVE_API_URL: ${CONCLAVE_API_URL:-http://api:8000}
+      CONCLAVE_AGENT_KEY: ${SEED_RESEARCH_KEY:-}
+      SEED_SPECIALTY: research
+
+  seed-creative:
+    <<: *seed
+    environment:
+      CONCLAVE_API_URL: ${CONCLAVE_API_URL:-http://api:8000}
+      CONCLAVE_AGENT_KEY: ${SEED_CREATIVE_KEY:-}
+      SEED_SPECIALTY: creative
+
+  seed-general:
+    <<: *seed
+    environment:
+      CONCLAVE_API_URL: ${CONCLAVE_API_URL:-http://api:8000}
+      CONCLAVE_AGENT_KEY: ${SEED_GENERAL_KEY:-}
+      SEED_SPECIALTY: general
+
+  # ─── Optional: operator dashboard (docker compose --profile dashboard up -d) ─
+  #
+  # network_mode: service:api shares the api container's network namespace, so
+  # http://localhost:8000 is genuinely local. That matters: api_client.py runs
+  # _validate_api_base at IMPORT and refuses any non-localhost http:// URL,
+  # because it sends the admin key on every request. Pointing it at
+  # http://api:8000 would kill the container on startup, every time. Sharing the
+  # namespace satisfies the guard as written rather than weakening it.
+  #
+  # Consequence: no `ports:` here — the 8503 publish is on the api service.
+  dashboard:
+    profiles: ["dashboard"]
+    build:
+      context: ./dashboard
+      dockerfile: Dockerfile
+    image: conclave-dashboard:dev
+    network_mode: "service:api"
+    environment:
+      CONCLAVE_API_URL: http://localhost:8000
+      # The dashboard's name for the same secret. Bridged here so there is ONE
+      # copy; a second hand-filled value in .env is how every panel ends up 403.
+      CONCLAVE_ADMIN_KEY: ${ADMIN_API_KEY:-}
+    depends_on:
+      api:
+        condition: service_healthy
     restart: unless-stopped
 
 volumes:

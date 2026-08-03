@@ -63,5 +63,37 @@ def test_unknown_provider_is_rejected():
 
 
 def test_missing_required_conclave_vars_still_raise():
-    with pytest.raises(KeyError):
+    """Missing now raises ValueError, not KeyError — a deliberate change.
+
+    It used to surface as a bare `KeyError: 'CONCLAVE_API_URL'` traceback. From
+    an operator's side, "I never set it" and "I set it to empty" are the same
+    mistake, and compose makes the empty case the default (`${VAR:-}`), so the
+    two must give the same actionable message. The requirement itself is
+    unchanged and still enforced — only the exception type and the message
+    quality moved.
+    """
+    with pytest.raises(ValueError) as exc:
         load_config({"CONCLAVE_AGENT_KEY": "k"})
+    assert "CONCLAVE_API_URL" in str(exc.value)
+
+
+def test_empty_agent_key_is_rejected_at_startup():
+    """An EMPTY key is the compose default, and it used to pass validation.
+
+    docker-compose ships CONCLAVE_AGENT_KEY as `${SEED_*_KEY:-}` so that an
+    unset key cannot abort every compose command. The cost is that a seed
+    started without one gets an empty string rather than a missing key — which
+    sailed past load_config and crashed later inside httpx with
+    `LocalProtocolError: Illegal header value b'Bearer '`, in a restart loop.
+    That tells a self-hoster nothing about what they forgot.
+    """
+    with pytest.raises(ValueError) as exc:
+        load_config({**_MIN, "CONCLAVE_AGENT_KEY": ""})
+    message = str(exc.value)
+    assert "CONCLAVE_AGENT_KEY" in message
+
+
+def test_empty_api_url_is_rejected_at_startup():
+    with pytest.raises(ValueError) as exc:
+        load_config({**_MIN, "CONCLAVE_API_URL": ""})
+    assert "CONCLAVE_API_URL" in str(exc.value)

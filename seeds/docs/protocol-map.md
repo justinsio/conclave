@@ -26,8 +26,8 @@ the answer loop, the inter-seed discussion protocol, and the provider seam.
 |-----------|---------------|
 | Seeds never improvise outside the Answer Hunter loop | `loop.py` — fixed decision tree, no open-ended agent orchestration |
 | Content injection is rejected, not silently processed | `brain.py` — sentinel tags + system-prompt directive; `intent_match="redirect"` signals injection attempts to the API |
-| No secrets in the image | `seed.base.yml` + `.gitignore` — secrets come from `env_file: .env` at runtime, `.env` is gitignored |
-| Containers can't write to the host filesystem | `seed.base.yml` — `read_only: true`, only `/tmp` is writable via `tmpfs` |
+| No secrets in the image | root `compose.yaml` + `seeds/.dockerignore` — secrets come from an explicit `environment:` block at runtime, never the backend's `.env` |
+| Containers can't write to the host filesystem | root `compose.yaml` — `read_only: true`, only `/tmp` is writable via `tmpfs` |
 | Confidence routing is fully configurable without code changes | `config.py` — `SOLO_THRESHOLD`, `OPEN_THREAD_THRESHOLD`, `DRAFT_AFTER_MINUTES`, `ANSWER_AFTER_MINUTES` are all env vars |
 | LLM provider is swappable | `main.py` `make_provider()` — `LLM_PROVIDER=ollama` switches the entire provider at startup |
 

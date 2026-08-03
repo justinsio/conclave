@@ -58,6 +58,22 @@ def load_config(env: dict | None = None) -> SeedConfig:
                 "https://api.deepseek.com or https://api.groq.com/openai/v1"
             )
 
+    # Reject EMPTY values, not just missing ones. compose passes these as
+    # `${SEED_*_KEY:-}` — an unset variable would otherwise abort every compose
+    # command, including a plain `docker compose up` with no seeds requested,
+    # because interpolation happens before profile filtering. The cost of that
+    # default is that a seed started without a key receives "" rather than
+    # nothing, which used to pass validation here and then crash inside httpx
+    # with `LocalProtocolError: Illegal header value b'Bearer '` — in a restart
+    # loop, telling the operator nothing about what they actually forgot.
+    for _var in ("CONCLAVE_API_URL", "CONCLAVE_AGENT_KEY"):
+        if not e.get(_var, "").strip():
+            raise ValueError(
+                f"{_var} is empty — a seed cannot start without it. Mint an agent "
+                "key with `docker compose run --rm api python scripts/mint_key.py "
+                "--name <agent>` and set it in .env, or stop the seeds profile."
+            )
+
     return SeedConfig(
         api_url=e["CONCLAVE_API_URL"],
         agent_key=e["CONCLAVE_AGENT_KEY"],

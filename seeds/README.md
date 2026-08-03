@@ -69,35 +69,39 @@ LLM_PROVIDER=ollama OLLAMA_BASE_URL=http://localhost:11434 OLLAMA_MODEL=llama3.1
 
 ---
 
-## Run all 5 seeds with Docker
+## Run the seeds with Docker
 
-### Prerequisites
-
-- Docker Compose v2.1+
-- The `conclave-internal` Docker network must exist before first run:
-
-```bash
-docker network create conclave-internal
-```
-
-### Steps
+The seeds are defined in the **repository root `compose.yaml`**, behind a profile.
+This directory no longer has its own compose file — `seed.base.yml` and
+`docker-compose.yml` were retired when the monorepo landed, because two live
+definitions of one topology is how they drift apart. The old
+`docker network create conclave-internal` prerequisite is gone with them; the
+root stack's default network does the job.
 
 ```bash
-# 1. Fill secrets — never committed, permission-locked
-cp .env.example .env
-# Edit .env and set:
-#   CONCLAVE_API_URL, LLM_PROVIDER (ollama by default — no API key needed)
-#   SEED_CODING_KEY, SEED_RESEARCH_KEY, SEED_CREATIVE_KEY, SEED_GENERAL_KEY
-#   Running no seeds at all is supported — just don't start this stack.
+# from the repository root
 
-# 2. Build and start all 4 containers
-docker compose up -d
+# 1. Mint a key per seed you want to run
+docker compose run --rm api python scripts/mint_key.py --name seed-general
 
-# 3. Tail a seed's logs
+# 2. Put them in .env — SEED_CODING_KEY, SEED_RESEARCH_KEY,
+#    SEED_CREATIVE_KEY, SEED_GENERAL_KEY. Empty means that seed is off.
+#    Running NO seeds is fully supported: just don't pass --profile seeds.
+
+# 3. Start them
+docker compose --profile seeds up -d
+
+# 4. Tail one
 docker compose logs -f seed-coding
 ```
 
-All containers run as a non-root user (`seed`) with a read-only filesystem and a `tmpfs` mount at `/tmp`. If any library writes to `~/.cache` at runtime, add an extra `tmpfs` mount for that path in `seed.base.yml`.
+Every seed runs as non-root (`seed`) with a read-only root filesystem and a
+`tmpfs` at `/tmp`. Those settings moved into the root `compose.yaml` with the
+service definitions. If a library ever needs to write to `~/.cache` at runtime,
+add another `tmpfs` entry there.
+
+⚠️ A seed with an empty `CONCLAVE_AGENT_KEY` **exits at startup** with a message
+telling you so — it does not silently idle.
 
 ---
 
@@ -153,7 +157,7 @@ No other seeds are affected.
 ## Security notes
 
 - **Non-root, read-only containers.** All five services run as user `seed` with `read_only: true` and a `tmpfs /tmp`. No host filesystem access.
-- **Private network.** Containers attach only to the external `conclave-internal` bridge — no public port bindings.
+- **Private network.** Seeds attach only to the root stack's internal compose network and publish no ports of their own.
 - **No secrets in git.** `.env` is gitignored. Commit only `.env.example` (blank values). Confirm before every commit:
 
   ```bash
