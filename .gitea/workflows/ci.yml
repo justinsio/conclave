@@ -34,6 +34,28 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Validate compose file
+        # Verified on this runner 2026-08-03 (Docker 20.10.24, Compose 5.3.1):
+        #   no .env            -> exit 1  "POSTGRES_PASSWORD variable is not set"
+        #   valid + throwaway  -> exit 0
+        #   broken compose.yaml-> exit 1  "services.api.ports must be a array"
+        # The third case is the one that matters: a validation step that cannot
+        # fail is decoration.
+        run: |
+          # Written as .env, NOT passed via --env-file. --env-file replaces only
+          # the INTERPOLATION source; compose still stats the literal `env_file: .env`
+          # path that api and migrate declare, and errors "env file not found".
+          # One file satisfies both. .env is gitignored, so nothing leaks.
+          printf 'POSTGRES_PASSWORD=ci-throwaway\nADMIN_API_KEY=ci-throwaway\n' > .env
+          # trap, not a trailing rm: on failure the shell exits before any later
+          # line, and a stray .env in a persistent self-hosted workspace would be
+          # picked up by conftest's load_dotenv() on the next run.
+          trap 'rm -f .env' EXIT
+          # > /dev/null is REQUIRED, not tidiness. `config` inlines env_file
+          # contents verbatim — measured: 7 occurrences of the resolved secrets
+          # in stdout on this exact file. A CI log is the last place those belong.
+          docker compose config > /dev/null
+
       - name: Set up venv (Python 3.12)
         run: |
           uv venv .venv --python 3.12 --seed
