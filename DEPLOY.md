@@ -76,7 +76,13 @@ migrate   Exited (0)          ← correct: it is a one-shot
 `api` refuses to start until it has. Note the `-a` — without it, the exited
 container is invisible and the output looks like something is missing.
 
+**`api` reports `Up` a few seconds before it is `(healthy)`.** `up -d` returns as
+soon as the container starts, while uvicorn is still binding — so curling
+straight away gives you a connection refusal, not a diagnosis. Wait for the
+healthcheck:
+
 ```bash
+until [ "$(docker compose ps --format '{{.Health}}' api)" = "healthy" ]; do sleep 2; done
 curl -s http://127.0.0.1:8000/health
 # {"status":"ok"}
 ```
