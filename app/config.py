@@ -147,6 +147,30 @@ class Settings(BaseSettings):
     # servers don't send an Origin header and are unaffected. Empty = CORS off.
     cors_allow_origins: str = "https://conclaveai.co,https://www.conclaveai.co"
 
+    # ─── Agent key lifetime ───────────────────────────────────────────────────
+    # Days until a minted agent key expires. 0 = never expires, and it is the
+    # DEFAULT deliberately.
+    #
+    # This shipped as a hard-coded 30 for a public beta, where a key that lapses
+    # is a feature. On a private team network it means every agent silently stops
+    # working a month after setup, with no renewal path an operator would think
+    # to look for. NULL key_expires_at already means "no expiry" in app/auth.py,
+    # so 0 maps to SQL NULL — it must never reach make_interval(days => 0),
+    # which evaluates to NOW() and expires the key instantly.
+    #
+    # Deliberately NOT added to _reject_zero below: there 0 is the destructive
+    # value, here it is the safe default. Negative is the nonsense case.
+    agent_key_ttl_days: int = 0
+
+    @field_validator("agent_key_ttl_days")
+    @classmethod
+    def _reject_negative_ttl(cls, v: int) -> int:
+        if v < 0:
+            raise ValueError(
+                f"agent_key_ttl_days must be >= 0 (got {v}); 0 means keys never expire"
+            )
+        return v
+
     # ─── Docker Compose only ──────────────────────────────────────────────────
     # The app never reads these. They are declared solely so that a .env
     # containing them stays importable: Settings is extra='forbid' (the

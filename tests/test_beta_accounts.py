@@ -63,11 +63,11 @@ async def test_null_expiry_never_expires(client, db_pool):
     assert resp.status_code == 200
 
 
-# ─── Cycle 2: POST /internal/admin/beta-users ─────────────────────────────────
+# ─── Cycle 2: POST /internal/admin/agents ─────────────────────────────────
 
 async def test_create_beta_user_returns_working_key_once(client, db_pool):
     resp = await client.post(
-        "/internal/admin/beta-users",
+        "/internal/admin/agents",
         json={"email": "Tester@Example.com", "agent_name": "Tester Agent",
               "category": "coding"},
         headers=ADMIN,
@@ -90,8 +90,11 @@ async def test_create_beta_user_returns_working_key_once(client, db_pool):
     )
     assert agent["plan"] == "reader"
     assert str(agent["user_id"]) == data["user_id"]
-    delta = agent["key_expires_at"] - datetime.now(timezone.utc)
-    assert timedelta(days=29) < delta < timedelta(days=31)
+    # Default AGENT_KEY_TTL_DAYS is 0 = never expires, so this is NULL. It used
+    # to be a hard-coded 30 days, which on a private network meant every agent
+    # silently stopped working a month after setup.
+    assert agent["key_expires_at"] is None
+    assert data["key_expires_at"] is None
 
     # The minted key authenticates — connect works without a prior rules ack.
     connect = await client.post(
@@ -104,7 +107,7 @@ async def test_create_beta_user_returns_working_key_once(client, db_pool):
 
 async def test_create_beta_user_requires_admin(client):
     resp = await client.post(
-        "/internal/admin/beta-users",
+        "/internal/admin/agents",
         json={"email": "x@example.com", "agent_name": "X", "category": "coding"},
         headers={"Authorization": "Bearer not-an-admin-key"},
     )
@@ -113,18 +116,18 @@ async def test_create_beta_user_requires_admin(client):
 
 async def test_create_beta_user_duplicate_email_conflict(client):
     body = {"email": "dupe@example.com", "agent_name": "A", "category": "coding"}
-    first = await client.post("/internal/admin/beta-users", json=body, headers=ADMIN)
+    first = await client.post("/internal/admin/agents", json=body, headers=ADMIN)
     assert first.status_code == 200
 
-    second = await client.post("/internal/admin/beta-users", json=body, headers=ADMIN)
+    second = await client.post("/internal/admin/agents", json=body, headers=ADMIN)
     assert second.status_code == 409
 
 
-# ─── Cycle 3: GET /internal/admin/beta-users ──────────────────────────────────
+# ─── Cycle 3: GET /internal/admin/agents ──────────────────────────────────
 
 async def test_list_beta_users_with_activity_counts(client, db_pool):
     created = (await client.post(
-        "/internal/admin/beta-users",
+        "/internal/admin/agents",
         json={"email": "active@example.com", "agent_name": "Active", "category": "coding"},
         headers=ADMIN,
     )).json()
@@ -135,36 +138,113 @@ async def test_list_beta_users_with_activity_counts(client, db_pool):
         created["agent_id"], [],
     )
 
-    resp = await client.get("/internal/admin/beta-users", headers=ADMIN)
+    resp = await client.get("/internal/admin/agents", headers=ADMIN)
     assert resp.status_code == 200
     rows = resp.json()
     row = next(r for r in rows if r["email"] == "active@example.com")
     assert row["post_count"] == 1
     assert row["answer_count"] == 0
-    assert row["key_expires_at"]
+    assert row["key_expires_at"] is None   # never expires, under the default TTL
 
 
-# ─── Cycle 4: POST /internal/admin/beta-users/{id}/extend ─────────────────────
+# ─── Cycle 4: POST /internal/admin/agents/{id}/extend ─────────────────────
 
-async def test_extend_beta_user_adds_30_days(client, db_pool):
+async def test_extend_is_a_no_op_when_keys_never_expire(client, db_pool):
+    """Extending a never-expiring key must NOT give it an expiry.
+
+    This is the case that used to fail three ways at once: the response model
+    was non-optional (500), None doubled as the row-not-found sentinel (404 on
+    a successful extend), and the audit log called .isoformat() on it
+    (AttributeError, after the row was already modified).
+    """
     created = (await client.post(
-        "/internal/admin/beta-users",
-        json={"email": "extend@example.com", "agent_name": "Ext", "category": "coding"},
+        "/internal/admin/agents",
+        json={"agent_name": "Ext", "category": "coding"},
         headers=ADMIN,
     )).json()
-    before = await db_pool.fetchval(
-        "SELECT key_expires_at FROM agents WHERE id = $1::uuid", created["agent_id"]
-    )
 
     resp = await client.post(
-        f"/internal/admin/beta-users/{created['user_id']}/extend", headers=ADMIN
+        f"/internal/admin/agents/{created['user_id']}/extend", headers=ADMIN
     )
-    assert resp.status_code == 200
+    assert resp.status_code == 200                      # not 404
+    assert resp.json()["key_expires_at"] is None        # not given an expiry
 
     after = await db_pool.fetchval(
         "SELECT key_expires_at FROM agents WHERE id = $1::uuid", created["agent_id"]
     )
-    assert timedelta(days=29) < (after - before) < timedelta(days=31)
+    assert after is None
+
+
+async def test_extend_of_a_missing_user_is_still_404(client):
+    """Existence is checked explicitly now, not inferred from a NULL expiry."""
+    resp = await client.post(
+        "/internal/admin/agents/00000000-0000-0000-0000-000000000000/extend",
+        headers=ADMIN,
+    )
+    assert resp.status_code == 404
+
+
+# ─── AGENT_KEY_TTL_DAYS semantics ─────────────────────────────────────────────
+
+async def test_a_positive_ttl_still_sets_a_real_expiry(client, db_pool, monkeypatch):
+    """0 is the default, not the only option — an operator can still opt in."""
+    monkeypatch.setattr(settings, "agent_key_ttl_days", 30)
+    created = (await client.post(
+        "/internal/admin/agents",
+        json={"agent_name": "Expiring", "category": "coding"},
+        headers=ADMIN,
+    )).json()
+
+    expires = await db_pool.fetchval(
+        "SELECT key_expires_at FROM agents WHERE id = $1::uuid", created["agent_id"]
+    )
+    assert expires is not None
+    assert timedelta(days=29) < (expires - datetime.now(timezone.utc)) < timedelta(days=31)
+
+
+async def test_a_never_expiring_key_still_authenticates(client):
+    """A NULL expiry must mean 'no expiry', not 'expired'.
+
+    Asserting the column is NULL is not enough — that would pass even if
+    auth.py later started rejecting NULLs. This exercises the auth path.
+    """
+    created = (await client.post(
+        "/internal/admin/agents",
+        json={"agent_name": "Forever", "category": "coding"},
+        headers=ADMIN,
+    )).json()
+    connect = await client.post(
+        "/v1/agents/connect",
+        json={"rules_version_acknowledged": settings.rules_version},
+        headers={"Authorization": f"Bearer {created['api_key']}"},
+    )
+    assert connect.status_code == 200
+
+
+# ─── Optional email ───────────────────────────────────────────────────────────
+
+async def test_email_is_optional_and_synthesized_from_the_agent_name(client):
+    """A self-hoster minting a key for their own agent has no email to give.
+
+    users.email is NOT NULL UNIQUE, so "optional" needs a value rather than a
+    dropped field. .invalid is RFC 2606 reserved and can never resolve.
+    """
+    created = (await client.post(
+        "/internal/admin/agents",
+        json={"agent_name": "NoEmail", "category": "coding"},
+        headers=ADMIN,
+    )).json()
+    assert created["email"] == "noemail@local.invalid"
+
+
+async def test_an_explicit_email_is_still_honoured(client):
+    created = (await client.post(
+        "/internal/admin/agents",
+        json={"agent_name": "HasEmail", "category": "coding",
+              "email": "Real@Example.com"},
+        headers=ADMIN,
+    )).json()
+    assert created["email"] == "real@example.com"
 
 
 # ─── Cycle 5: same-owner vote exclusion (DB trigger upgrade) ──────────────────

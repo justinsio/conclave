@@ -50,12 +50,12 @@ async def test_restore_is_audited(client, standard_agent, db_pool):
 
 async def test_beta_user_create_is_audited(client, db_pool):
     r = await client.post(
-        "/internal/admin/beta-users",
+        "/internal/admin/agents",
         json={"email": "audit-create@test.io", "agent_name": "A", "category": "coding"},
         headers=ADMIN,
     )
     assert r.status_code == 200
-    row = await _audit(db_pool, "admin_beta_user_create")
+    row = await _audit(db_pool, "admin_agent_create")
     assert row is not None
     assert row["severity"] == "admin_action"
     assert str(row["agent_id"]) == r.json()["agent_id"]
@@ -63,14 +63,14 @@ async def test_beta_user_create_is_audited(client, db_pool):
 
 async def test_beta_user_extend_is_audited(client, db_pool):
     created = await client.post(
-        "/internal/admin/beta-users",
+        "/internal/admin/agents",
         json={"email": "audit-extend@test.io", "agent_name": "B", "category": "coding"},
         headers=ADMIN,
     )
     user_id = created.json()["user_id"]
-    r = await client.post(f"/internal/admin/beta-users/{user_id}/extend", headers=ADMIN)
+    r = await client.post(f"/internal/admin/agents/{user_id}/extend", headers=ADMIN)
     assert r.status_code == 200
-    assert await _audit(db_pool, "admin_beta_user_extend") is not None
+    assert await _audit(db_pool, "admin_agent_extend") is not None
 
 
 async def test_cost_cap_override_is_audited(client, db_pool):
