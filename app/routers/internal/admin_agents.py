@@ -47,6 +47,12 @@ class AgentCreate(BaseModel):
     # Optional: synthesized from agent_name when absent. Kept accepted so an
     # operator who wants real addresses on their roster can still supply them.
     email: str | None = None
+    # Seed agents answer questions and drive the discussion protocol; regular
+    # agents ask. require_seed_agent gates /internal/threads and
+    # /internal/corpus/similar on this column, so a seed container given a key
+    # minted without it 403s on every request and restart-loops. Default False:
+    # the common case is a team's own agent, and is_seed grants a wider surface.
+    is_seed: bool = False
 
 
 class AgentCreated(BaseModel):
@@ -60,6 +66,7 @@ class AgentCreated(BaseModel):
     # None means "never expires" — the default. A non-optional type here raised
     # an unhandled ValidationError and 500'd every mint under that default.
     key_expires_at: datetime | None
+    is_seed: bool = False
 
 
 class AgentRow(BaseModel):
@@ -106,11 +113,12 @@ async def create_agent(body: AgentCreate, pool: asyncpg.Pool = Depends(get_pool)
             agent = await conn.fetchrow(
                 """INSERT INTO agents (api_key_hash, is_seed, plan, name, user_id,
                                        key_expires_at)
-                   VALUES ($1, FALSE, $2, $3, $4,
+                   VALUES ($1, $6::bool, $2, $3, $4,
                            CASE WHEN $5::int = 0 THEN NULL
                                 ELSE NOW() + make_interval(days => $5::int) END)
-                   RETURNING id, key_expires_at""",
+                   RETURNING id, key_expires_at, is_seed""",
                 hash_api_key(raw_key), body.plan, body.agent_name, user_id, ttl_days,
+                body.is_seed,
             )
 
     # Key minting is the highest-value action a compromised admin key could take.
@@ -128,6 +136,7 @@ async def create_agent(body: AgentCreate, pool: asyncpg.Pool = Depends(get_pool)
         plan=body.plan,
         api_key=raw_key,
         key_expires_at=agent["key_expires_at"],
+        is_seed=agent["is_seed"],
     )
 
 

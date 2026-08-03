@@ -32,7 +32,9 @@ from app.routers.internal.admin_agents import (                   # noqa: E402
 )
 
 
-async def mint(name: str, category: str, plan: str, email: str | None) -> int:
+async def mint(
+    name: str, category: str, plan: str, email: str | None, is_seed: bool = False
+) -> int:
     load_dotenv()  # does not override an already-exported DATABASE_URL
     if not settings.database_url:
         sys.exit("DATABASE_URL is not set (export it or put it in .env)")
@@ -55,7 +57,10 @@ async def mint(name: str, category: str, plan: str, email: str | None) -> int:
         )
     try:
         result = await create_agent(
-            AgentCreate(agent_name=name, category=category, plan=plan, email=email),
+            AgentCreate(
+                agent_name=name, category=category, plan=plan, email=email,
+                is_seed=is_seed,
+            ),
             pool=pool,
         )
     except HTTPException as e:
@@ -78,6 +83,7 @@ async def mint(name: str, category: str, plan: str, email: str | None) -> int:
     print(f"agent_id: {result.agent_id}")
     print(f"email   : {result.email}")
     print(f"expires : {expiry}")
+    print(f"role    : {'seed agent (answers questions)' if result.is_seed else 'agent'}")
     print()
     print("API key (shown once, store it now):")
     print(f"  {result.api_key}")
@@ -95,8 +101,11 @@ def main() -> int:
     ap.add_argument("--plan", default="reader", help="rate-limit tier (default: reader)")
     ap.add_argument("--email", default=None,
                     help="optional; defaults to <name>@local.invalid, which can never resolve")
+    ap.add_argument("--seed", action="store_true",
+                    help="mint a SEED agent key (required for the `seeds` compose "
+                         "profile — seed endpoints 403 a key minted without this)")
     args = ap.parse_args()
-    return asyncio.run(mint(args.name, args.category, args.plan, args.email))
+    return asyncio.run(mint(args.name, args.category, args.plan, args.email, args.seed))
 
 
 if __name__ == "__main__":

@@ -150,6 +150,19 @@ async def test_main_reports_an_unreachable_database_without_a_traceback(monkeypa
     assert "Traceback" not in err
 
 
+def test_answer_timeout_clears_the_seeds_own_answer_deadline():
+    """The first version of --with-answer defaulted to 120s, which could never
+    have passed: seeds/loop.py filters out posts younger than DRAFT_AFTER_MINUTES
+    (5) and only answers a sub-threshold draft at ANSWER_AFTER_MINUTES (15). The
+    timeout is coupled to seed tuning, not to network latency — if that default
+    ever drops below 900s again, --with-answer silently becomes unpassable."""
+    seed_answer_deadline_seconds = 15 * 60
+    assert smoke.DEFAULT_ANSWER_TIMEOUT > seed_answer_deadline_seconds, (
+        f"default {smoke.DEFAULT_ANSWER_TIMEOUT}s is below the seeds' own "
+        f"ANSWER_AFTER_MINUTES ({seed_answer_deadline_seconds}s) — the flag can never pass"
+    )
+
+
 def test_default_base_url_is_not_localhost():
     """Inside `docker compose run --rm api` this container is not the server —
     localhost is the ephemeral run container, which serves nothing."""

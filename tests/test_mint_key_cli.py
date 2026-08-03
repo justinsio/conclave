@@ -63,6 +63,47 @@ async def test_never_expires_is_reported_as_never(cli_pool, clean_db, capsys):
     ) is None
 
 
+async def test_mints_a_regular_agent_by_default(cli_pool, clean_db):
+    assert await mint_key.mint("eve", "general", "reader", None, is_seed=False) == 0
+    assert await cli_pool.fetchval("SELECT is_seed FROM agents WHERE name = 'eve'") is False
+
+
+async def test_seed_flag_mints_a_seed_agent(cli_pool, clean_db, capsys):
+    """Found by running --profile seeds on a fresh box: create_agent hardcoded
+    is_seed FALSE, so every key DEPLOY.md told an operator to mint for a seed got
+    403 on /internal/threads. require_seed_agent checks is_seed, so without this
+    the seeds profile cannot work at all."""
+    assert await mint_key.mint("seed-coding", "coding", "reader", None, is_seed=True) == 0
+
+    assert await cli_pool.fetchval(
+        "SELECT is_seed FROM agents WHERE name = 'seed-coding'"
+    ) is True
+    assert "seed agent" in capsys.readouterr().out
+
+
+async def test_a_seed_key_authenticates_as_a_seed(cli_pool, clean_db, client, capsys):
+    """Asserting the column alone would pass even if the auth path stopped
+    honouring it. Drive the real dependency instead."""
+    assert await mint_key.mint("seed-research", "research", "reader", None, is_seed=True) == 0
+    key = [
+        ln.strip() for ln in capsys.readouterr().out.splitlines() if ln.strip()
+    ][-1]
+
+    r = await client.get("/internal/threads", headers={"Authorization": f"Bearer {key}"})
+    assert r.status_code == 200, f"seed key rejected: {r.status_code} {r.text[:200]}"
+
+
+async def test_a_regular_key_is_still_refused_by_seed_endpoints(cli_pool, clean_db, client, capsys):
+    """The other direction — the flag must not open seed endpoints to everyone."""
+    assert await mint_key.mint("frank", "general", "reader", None, is_seed=False) == 0
+    key = [
+        ln.strip() for ln in capsys.readouterr().out.splitlines() if ln.strip()
+    ][-1]
+
+    r = await client.get("/internal/threads", headers={"Authorization": f"Bearer {key}"})
+    assert r.status_code == 403
+
+
 async def test_a_duplicate_name_prints_a_message_not_a_traceback(cli_pool, clean_db, capsys):
     """Reusing an HTTP route in a CLI means HTTP errors surface here. A
     fastapi.exceptions.HTTPException traceback is the wrong output for

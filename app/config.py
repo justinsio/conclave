@@ -188,6 +188,17 @@ class Settings(BaseSettings):
     seed_creative_key: str = ""
     seed_general_key: str = ""
     conclave_admin_key: str = ""     # the dashboard's name for ADMIN_API_KEY
+    # Seed LLM configuration. The BACKEND ignores every one of these — they exist
+    # so compose can forward them to the seed containers, which read them from
+    # their own environment (seeds/config.py). They still have to be declared
+    # here, because they live in the same root .env that api and migrate consume
+    # via env_file. ollama_base_url is deliberately NOT repeated: it is already
+    # declared above and the seeds reuse that one value.
+    llm_provider: str = ""           # ollama | openai_compatible
+    ollama_model: str = ""           # seed inference model, not embedding_model
+    llm_api_key: str = ""
+    llm_base_url: str = ""
+    llm_model: str = ""
 
     @field_validator(
         "corpus_quarantine_days", "corpus_upvote_threshold", "post_expiry_ttl_days"

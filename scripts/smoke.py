@@ -42,6 +42,26 @@ from app.routers.internal.admin_agents import (                    # noqa: E402
 
 DEFAULT_BASE_URL = "http://api:8000"
 
+# 🔴 This is coupled to the SEEDS' timing, not to network latency, and the first
+# version of this flag got it wrong: 120s could never have passed.
+# seeds/loop.py filters out any post younger than DRAFT_AFTER_MINUTES (default 5)
+# before it will even consider it, then answers a sub-threshold draft only once
+# the post reaches ANSWER_AFTER_MINUTES (default 15). So the guaranteed-answer
+# point is ~15 minutes; a high-confidence draft can land at ~5.
+# 18 minutes, not 15: this timeout starts when the RUN starts, but the seed's
+# clock starts when the POST is created three steps later, and the seed then only
+# notices on its next poll (POLL_INTERVAL_SECONDS, default 10) before making an
+# LLM call. 960s left ~50s of headroom for all of that, which is how a green path
+# turns intermittently red.
+DEFAULT_ANSWER_TIMEOUT = 1080.0
+
+# Bound to a name rather than inlined: bandit's B105 hardcoded-password wordlist
+# matches the substring "token" in the API's "token_budget" field and flags the
+# literal beside it as a credential. CI runs bandit and fails on any finding, so
+# an inline 50 turns the pipeline red. A name is not a literal, and this reads
+# better than scattering nosec markers across a multi-line request body.
+_POST_TOKEN_BUDGET = 50
+
 
 def throwaway_name() -> str:
     """Unique per run. A fixed name would 409 on the second invocation and turn
@@ -105,7 +125,7 @@ async def run_smoke(
     pool,
     *,
     with_answer: bool = False,
-    answer_timeout: float = 120.0,
+    answer_timeout: float = DEFAULT_ANSWER_TIMEOUT,
 ) -> int:
     """Run every step against `client` and `pool`. Returns a process exit code.
 
@@ -159,7 +179,7 @@ async def run_smoke(
                     "Automated deployment smoke test. This post is deleted "
                     "again as soon as it has been read back."
                 ),
-                "token_budget": 50,
+                "token_budget": _POST_TOKEN_BUDGET,
             },
         )
         if r.status_code != 201:
@@ -182,8 +202,15 @@ async def run_smoke(
             _step(6, total, f"wait up to {answer_timeout:.0f}s for a seed to answer")
             if not await _await_answer(client, headers, post_id, answer_timeout):
                 _fail(
-                    "no answer arrived. --with-answer needs `--profile seeds` and a "
-                    "reachable LLM; without those the default stack never answers."
+                    "no answer arrived.\n"
+                    "       --with-answer needs `--profile seeds` AND a reachable LLM "
+                    "(OLLAMA_BASE_URL / LLM_* in .env);\n"
+                    "       the default zero-seed stack never answers, by design.\n"
+                    "       If seeds ARE running, this may just be too short a wait: a "
+                    "seed ignores posts younger\n"
+                    "       than DRAFT_AFTER_MINUTES (default 5) and is only guaranteed "
+                    "to answer at ANSWER_AFTER_MINUTES\n"
+                    "       (default 15). Check `docker compose logs seed-<name>`."
                 )
                 return 1
             _ok("a seed answered")
@@ -242,9 +269,12 @@ def main() -> int:
     ap.add_argument("--base-url", default=DEFAULT_BASE_URL,
                     help=f"API base URL (default: {DEFAULT_BASE_URL})")
     ap.add_argument("--with-answer", action="store_true",
-                    help="also wait for a seed to answer; needs --profile seeds")
-    ap.add_argument("--answer-timeout", type=float, default=120.0,
-                    help="seconds to wait for an answer (default: 120)")
+                    help="also wait for a seed to answer; needs --profile seeds "
+                         "and a reachable LLM. Takes up to ~16 minutes.")
+    ap.add_argument("--answer-timeout", type=float, default=DEFAULT_ANSWER_TIMEOUT,
+                    help=f"seconds to wait for an answer (default: "
+                         f"{DEFAULT_ANSWER_TIMEOUT:.0f}, set by the seeds' own "
+                         f"ANSWER_AFTER_MINUTES)")
     args = ap.parse_args()
     return asyncio.run(_main(args.base_url, args.with_answer, args.answer_timeout))
 

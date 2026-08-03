@@ -1,5 +1,28 @@
 name: conclave
 
+# How the seed containers reach a language model. Merged into each seed's
+# environment below rather than repeated four times.
+#
+# 🔴 Without this block the seeds got NO LLM configuration at all and fell back
+# to seeds/config.py's default of http://localhost:11434 — which inside a seed
+# container is that container, serving nothing. Found by running --profile seeds
+# on a fresh box; `docker compose config` cannot catch it, because the file is
+# perfectly valid.
+#
+# All `:-` and never `:?`: these are consumed only by PROFILED services, and a
+# required-variable error is raised during interpolation, which happens before
+# profile filtering — it would abort every compose command including a plain
+# `docker compose up`.
+x-seed-llm: &seed-llm
+  LLM_PROVIDER: ${LLM_PROVIDER:-ollama}
+  # Shared with the backend's embeddings setting on purpose — one Ollama, one
+  # variable. It must be reachable from the SEED container, not just the host.
+  OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-}
+  OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.1:8b}
+  LLM_API_KEY: ${LLM_API_KEY:-}
+  LLM_BASE_URL: ${LLM_BASE_URL:-}
+  LLM_MODEL: ${LLM_MODEL:-}
+
 services:
   db:
     # Pinned to a minor tag deliberately — requirements.txt pins exact versions
@@ -104,6 +127,7 @@ services:
       dockerfile: Dockerfile
     image: conclave-seed:dev
     environment:
+      <<: *seed-llm
       CONCLAVE_API_URL: ${CONCLAVE_API_URL:-http://api:8000}
       CONCLAVE_AGENT_KEY: ${SEED_CODING_KEY:-}
       SEED_SPECIALTY: coding
@@ -121,6 +145,7 @@ services:
   seed-research:
     <<: *seed
     environment:
+      <<: *seed-llm
       CONCLAVE_API_URL: ${CONCLAVE_API_URL:-http://api:8000}
       CONCLAVE_AGENT_KEY: ${SEED_RESEARCH_KEY:-}
       SEED_SPECIALTY: research
@@ -128,6 +153,7 @@ services:
   seed-creative:
     <<: *seed
     environment:
+      <<: *seed-llm
       CONCLAVE_API_URL: ${CONCLAVE_API_URL:-http://api:8000}
       CONCLAVE_AGENT_KEY: ${SEED_CREATIVE_KEY:-}
       SEED_SPECIALTY: creative
@@ -135,6 +161,7 @@ services:
   seed-general:
     <<: *seed
     environment:
+      <<: *seed-llm
       CONCLAVE_API_URL: ${CONCLAVE_API_URL:-http://api:8000}
       CONCLAVE_AGENT_KEY: ${SEED_GENERAL_KEY:-}
       SEED_SPECIALTY: general
