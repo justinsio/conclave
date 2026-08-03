@@ -73,3 +73,21 @@ def test_seed_llm_keys_are_declared():
     )
     assert s.llm_provider == "ollama"
     assert s.ollama_model == "qwen2.5:3b"
+
+
+def test_seed_tuning_keys_survive_an_empty_value():
+    """Typed str on purpose. These are pass-through strings the backend never
+    reads, and seeds/config.py does the parsing — but they live in the root .env
+    that api and migrate consume, so an int-typed POLL_INTERVAL_SECONDS left
+    empty would fail coercion at import and take the api container down."""
+    s = Settings(
+        poll_interval_seconds="",
+        solo_threshold="",
+        open_thread_threshold="",
+        draft_after_minutes="",
+        answer_after_minutes="",
+    )
+    assert s.draft_after_minutes == ""
+
+    s2 = Settings(draft_after_minutes="1", answer_after_minutes="3")
+    assert (s2.draft_after_minutes, s2.answer_after_minutes) == ("1", "3")

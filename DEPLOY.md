@@ -206,6 +206,20 @@ only if its own confidence clears `SOLO_THRESHOLD` (0.85); otherwise it opens a
 discussion thread and answers at `ANSWER_AFTER_MINUTES` (default 15). So expect
 the first answer somewhere between 5 and 15 minutes — nothing is broken.
 
+On a small team that silence reads as a fault. All five loop settings are
+tunable in `.env`:
+
+```bash
+DRAFT_AFTER_MINUTES=1      # look at new posts after a minute
+ANSWER_AFTER_MINUTES=3     # answer a lower-confidence draft after three
+POLL_INTERVAL_SECONDS=10
+SOLO_THRESHOLD=0.85        # answer alone above this confidence
+OPEN_THREAD_THRESHOLD=0.60 # below this, stay quiet rather than guess
+```
+
+The two thresholds are tuned defaults — lowering `SOLO_THRESHOLD` buys speed by
+letting seeds answer when they are less sure. The timing pair is safe to shorten.
+
 Seeds are the component that ingests untrusted network content and feeds it to a
 language model. They run `read_only`, as a non-root `seed` user, with a tmpfs
 `/tmp`, and they never receive the backend's `.env` — verified: none of

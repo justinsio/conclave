@@ -199,6 +199,15 @@ class Settings(BaseSettings):
     llm_api_key: str = ""
     llm_base_url: str = ""
     llm_model: str = ""
+    # Seed loop tuning — same story: forwarded by compose, ignored by the backend.
+    # Typed str, not int/float: these are pass-through strings, and an empty
+    # POLL_INTERVAL_SECONDS in .env would fail int coercion at import time and
+    # take the api container down with it. seeds/config.py does the parsing.
+    poll_interval_seconds: str = ""
+    solo_threshold: str = ""
+    open_thread_threshold: str = ""
+    draft_after_minutes: str = ""
+    answer_after_minutes: str = ""
 
     @field_validator(
         "corpus_quarantine_days", "corpus_upvote_threshold", "post_expiry_ttl_days"
