@@ -1,4 +1,4 @@
-# Containerize & Bootstrap Implementation Plan — **revision 4**
+# Containerize & Bootstrap Implementation Plan — **revision 5**
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -10,8 +10,8 @@
 
 ---
 
-> [!note] 📋 Revision 4 — written against the **third** audit. Not yet re-audited.
-> **Audit history: rev 1 → 8 criticals · rev 2 → 4 · rev 3 → 2.** The trend is the point: each round is smaller, and **every round's defects were in the previous round's corrections**, not in the original text.
+> [!note] 📋 Revision 5 — written against the **fourth** audit. Not yet re-audited.
+> **Audit history: rev 1 → 8 criticals · rev 2 → 4 · rev 3 → 2 · rev 4 → 2.** The trend is the point: each round is smaller, and **every round's defects were in the previous round's corrections**, not in the original text.
 >
 > - Rev 2's criticals: three rev-1 findings *discussed but not fixed*, plus a **security regression created by a fix** (shipping the admin key empty, when an empty key made `Authorization: Admin ` authenticate).
 > - Rev 3's criticals: an `ENVIRONMENT=production` default that **would not boot**, because the decision was made without the `.env.example` line that makes it true; and a CI fix that **left CI red**, because `--env-file` does not satisfy `env_file:`.
@@ -82,7 +82,7 @@ Revision 1 was audited cold and came back **not safe to execute**: 8 criticals. 
 
 **Facts about the code, verified — do not re-derive:**
 
-- `ADMIN_API_KEY`, **not** `ADMIN_KEY` (`app/config.py:59`, default `"dev-admin-key"`). **The design spec says `ADMIN_KEY` and is wrong.**
+- `ADMIN_API_KEY`, **not** `ADMIN_KEY` (`app/config.py:59`, default `"dev-admin-key"`). ✏️ *The spec used to say `ADMIN_KEY`; `5dc36ab` fixed it. Revs 3 and 4 both kept asserting the spec was wrong **after it had been corrected** — a "verified facts" block that has gone stale is exactly the failure mode Task 6 Step 4b exists to fix.*
 - `/health` exists (`app/main.py:167`).
 - `.env.example` has 32 variables, no `POSTGRES_PASSWORD`.
 - `Settings` is `extra='forbid'` and reads `.env` — **an undeclared key in `.env` is a hard import failure.**
@@ -120,7 +120,7 @@ conclave_admin_key: str = ""     # compose-only; the dashboard's name for ADMIN_
 
 📌 `app/config.py` does not literally contain `extra='forbid'` — it is pydantic-settings' **default**. A reader who greps for the string and finds nothing may wrongly conclude the constraint is gone.
 
-📌 **All five keys go in `.env.example` too**, empty, under a commented `# ── Compose profiles ──` block — not just `SEED_GENERAL_KEY`. Rev 3 declared four seed keys in `Settings` and then added one to `.env.example` in Task 3, leaving an operator enabling the profile to discover three undocumented variables.
+📌 **The four SEED_* keys go in `.env.example` too**, empty, under a commented `# ── Compose profiles ──` block — not just `SEED_GENERAL_KEY`, which is what Task 3 Step 1 says and what rev 3 left behind. **`CONCLAVE_ADMIN_KEY` does NOT go in `.env.example`** — it is bridged from `ADMIN_API_KEY` in compose (Task 3 Step 3); a second hand-filled copy is how every dashboard panel ends up 403ing. So: **six declared fields, four of them in `.env.example`.** Rev 4 wrote "all five keys", which matched neither number.
 
 - [ ] **Step 1b: Prove the failure first**
 
@@ -162,7 +162,7 @@ This is find #10 in the recurring pattern: **controls written for a public multi
 | 30 | `moderation_gate_enabled` false | 🔄 **Becomes a WARNING, not a failure.** Rev 2's own decision says *"a private team that trusts its own agents runs with the gate off — a legitimate, now-supported posture"*, and a hard failure here makes that posture **impossible**. `warn_self_host_posture` (`preflight.py:64`) already exists and already does exactly this — move it there. |
 | 33 | `rate_limit_enabled` false | **Stays a hard failure** — it protects against runaway cost and abuse regardless of who the agents are. 🔴 **But it is NOT on today: `.env.example:104` ships `RATE_LIMIT_ENABLED=false` and `config.py:129` defaults it `False`.** This step must flip `.env.example` to `true` or the `production` default below refuses to boot. Leave the *config* default `False` — the tests rely on it. |
 | 34 | `anthropic_api_key` empty | 🔄 **Required only when the gate is enabled.** Unconditionally requiring it makes production unbootable for the bring-your-own-LLM user this phase targets. |
-| 38 | `trusted_proxy_ips` empty | 🔄 **Becomes a WARNING, same as line 30.** ⚠️ Rev 3 said "required only when a proxy is declared" — **there is no such declaration in the codebase.** `trusted_proxy_ips` is the only proxy-related setting (`grep -rn proxy app/` → `config.py:142`, `waitlist.py:23,26`, `preflight.py:38`), so that condition compiles to `if x and not x` — dead code. Implemented literally it either does nothing or invents a setting nothing reads. Moving it to `warn_self_host_posture` keeps the signal for the operator who *does* front it with Caddy and never sets it — otherwise their rate limiter silently collapses to one shared bucket. |
+| 38 | `trusted_proxy_ips` empty | 🔄 **Becomes a WARNING, same as line 30.** ⚠️ Rev 3 said "required only when a proxy is declared" — **there is no such declaration in the codebase.** `trusted_proxy_ips` is the only proxy-related setting (`grep -rn proxy app/` → `config.py:142`, `waitlist.py:23,26`, `preflight.py:38`), so that condition compiles to `if x and not x` — dead code. Implemented literally it either does nothing or invents a setting nothing reads. Moving it to `warn_self_host_posture` keeps the signal for the operator who *does* front it with Caddy and never sets it. ✏️ **Rewrite the warning text while moving it** — `preflight.py:40-42` says the *rate limiter* collapses to one shared bucket, and that is **false**: `enforce_rate_limit` is **agent-keyed** (`INSERT INTO rate_limit_counters (agent_id, …) ON CONFLICT (agent_id, window_start)`), not IP-keyed. The only consumer of `trusted_proxy_ips` is `app/routers/v1/waitlist.py:23,26` — the public waitlist form's IP throttle, which a self-hoster does not use. The warning should name that endpoint. **This strengthens the demotion**, but carrying the old text forward would tell self-hosters their agent rate limiting is broken when it is not. |
 
 ✅ **`.env.example` ships `ENVIRONMENT=production`.** Rev 2 never named the value, while Tasks 6 and 7 both depend on it. Shipping `dev` means the admin-key and rate-limit guards never run on the documented path — which is how SEC-1 stayed reachable.
 
@@ -170,25 +170,40 @@ This is find #10 in the recurring pattern: **controls written for a public multi
 
 - [ ] **Step 2b: Prove the shipped file actually boots — this step had no verification at all**
 
+🔴 **Rev 4's first draft of this step printed `PASS` against the unedited file — blind to the one thing it existed to catch.** Verified: `preflight.py:22` returns immediately when `environment != "production"`, so an un-flipped `.env.example` sails through. And when I ran it, `dotenv_values` on the `/tmp` copy silently returned `ENVIRONMENT -> None` (CRLF + `sed -i` under Git Bash) — **the probe read nothing and still said PASS.** `dotenv_values` on a *missing* file returns an empty dict with no error, so a bad path passes too.
+
+**A probe must assert what it read before trusting what it concluded.** Read `.env.example` in place — no `cp`, no `sed`, no temp path:
+
 ```bash
-cp .env.example /tmp/prodprobe.env
-sed -i 's/^ADMIN_API_KEY=.*/ADMIN_API_KEY=a-real-strong-secret/' /tmp/prodprobe.env
-sed -i 's/^POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=probe/' /tmp/prodprobe.env
-python - <<'PY'
+.venv/Scripts/python.exe - <<'PY'
 from dotenv import dotenv_values
 from app.config import Settings
 from app.services.preflight import assert_production_safety
-s = Settings(**{k.lower(): v for k, v in dotenv_values('/tmp/prodprobe.env').items() if v is not None})
+
+vals = dotenv_values(".env.example")
+assert vals, "FAIL: read 0 keys from .env.example — wrong path or unreadable file"
+assert vals.get("ENVIRONMENT") == "production", \
+    f"FAIL: .env.example ships ENVIRONMENT={vals.get('ENVIRONMENT')!r} — the preflight is a NO-OP"
+assert vals.get("RATE_LIMIT_ENABLED") == "true", \
+    f"FAIL: RATE_LIMIT_ENABLED={vals.get('RATE_LIMIT_ENABLED')!r} — production will not boot"
+
+# the only two edits an operator is told to make
+vals["ADMIN_API_KEY"] = "a-real-strong-secret"
+vals["POSTGRES_PASSWORD"] = "probe"
+
+s = Settings(**{k.lower(): v for k, v in vals.items() if v is not None})
+assert s.environment == "production", f"FAIL: Settings resolved environment={s.environment!r}"
 try:
     assert_production_safety(s)
     print("PASS: the shipped .env.example boots under ENVIRONMENT=production")
 except RuntimeError as e:
-    print("FAIL: shipped defaults refuse to boot:\n" + str(e)); raise SystemExit(1)
+    raise SystemExit("FAIL: shipped defaults refuse to boot:\n" + str(e))
 PY
-rm -f /tmp/prodprobe.env
 ```
 
-Expected: `PASS: …`, exit 0. **This fails if any of the five dispositions is decided but not reflected in `.env.example`** — which is precisely how rev 3 broke. The two `sed` edits are the only two an operator is told to make; if a third is needed, this step catches it.
+Expected: `PASS: …`, exit 0. **It now fails on all three states that matter** — file unreadable, `ENVIRONMENT` not flipped, `RATE_LIMIT_ENABLED` not flipped — instead of only the last one.
+
+⚠️ **Caveat to state, not to fix:** `Settings(**kwargs)` still reads the developer's own `.env` for any field absent from `.env.example`, so this is not a pure function of the shipped file. It catches the decided-but-not-shipped class, which is what rev 3 got wrong; it is not a full fresh-box simulation. **Task 7 is the fresh-box simulation.**
 
 ⚠️ **This changes security posture — the design spec has been amended (`5dc36ab`); keep it in sync if any of the five change again.**
 
@@ -230,6 +245,8 @@ Justin's question — must a self-hoster buy Anthropic, or could they use Grok? 
 (`:42`, the `anthropic_api_key` case, survives — `_good_prod` sets `moderation_gate_enabled=True`.)
 
 Two comment blocks also become false and must be rewritten in the same commit: `tests/test_preflight.py:79-84` and the `warn_self_host_posture` docstring at `preflight.py:67-71`, both of which currently explain that the gate check is deliberately *not* a warning.
+
+🔒 **Two hard-failure cases are being demoted to warnings, so add two tests asserting they now WARN** — otherwise, by this step's own standard, two assertions vanish with nothing replacing them. `warn_self_host_posture` is the new home; assert it emits for `moderation_gate_enabled=False` and for an empty `trusted_proxy_ips`.
 
 Run `./scripts/run_all_tests.sh` — expected **579/65/4 plus the new cases, minus nothing**. A test that vanishes rather than being updated is a regression wearing a green tick.
 
@@ -282,10 +299,14 @@ Expected: `clean — …`, exit 0.
 
 ⚠️ **The API probe above cannot be reused verbatim** — it asserts `/app/app/main.py`, but the seeds image has `/app/main.py` and the dashboard image `/app/Home.py`. Parameterise it rather than leaving the adaptation to the implementer:
 
+🔴🔴 **Rev 4's first draft of this function would have DESTROYED the operator's live secrets.** With context `.` it expanded `"$2/.env"` to `./.env` — the real root `.env` (**688 bytes on the dev box today**: `DATABASE_URL`, `ADMIN_API_KEY`, `TELEGRAM_BOT_TOKEN`, …) — overwrote it with a decoy and then `rm -f`'d it. It is **gitignored, so there is no recovery**, and Task 2 Step 3's first line then fails with "no `.env`". Rev 3's version only ever touched `seeds/.env`, where nothing existed; **parameterising the context is what created the hazard.**
+🔴 **And the API case could never have run** — the parameterisation dropped `-f deploy/Dockerfile`, and there is no `Dockerfile` at the repo root (`ls Dockerfile` → nothing; `deploy/` holds only `conclave.service`). Every run: `FAIL: build`, *after* the `.env` was already gone.
+
 ```bash
-probe() {   # $1=image  $2=context  $3=sentinel file that proves the COPY worked
+probe() {   # $1=image  $2=context  $3=sentinel proving the COPY worked  $4=dockerfile
+  [ "$2" = "." ] && { echo "REFUSING: will not plant a decoy .env in the repo root"; return 2; }
   printf 'LLM_API_KEY=probe-should-never-ship\n' > "$2/.env"     # plant a real leak target
-  docker build -q -t "$1" "$2" >/dev/null || { echo "FAIL($1): build"; rm -f "$2/.env"; return 2; }
+  docker build -q -f "$4" -t "$1" "$2" >/dev/null || { echo "FAIL($1): build"; rm -f "$2/.env"; return 2; }
   rm -f "$2/.env"
   docker run --rm "$1" sh -c "
     test -f '$3' || { echo 'FAIL($1): $3 missing — COPY wrong or stale image'; exit 2; }
@@ -295,12 +316,15 @@ probe() {   # $1=image  $2=context  $3=sentinel file that proves the COPY worked
   "
   echo "  exit=$?"
 }
-probe conclave-api:probe       .           /app/app/main.py
-probe conclave-seed:probe      ./seeds     /app/main.py
-probe conclave-dashboard:probe ./dashboard /app/Home.py
+probe conclave-seed:probe      ./seeds     /app/main.py  ./seeds/Dockerfile
+probe conclave-dashboard:probe ./dashboard /app/Home.py  ./dashboard/Dockerfile
 ```
 
-Expected: `clean(...)  exit=0` three times.
+Expected: `clean(...)  exit=0` twice.
+
+**The backend image is deliberately not probed this way.** `deploy/Dockerfile` uses explicit `COPY app/ migrations/ scripts/` — it cannot pick up a root `.env` — so the decoy buys nothing and the risk is unacceptable. Its `.dockerignore` is verified by the first block in this step instead, which builds with `-f deploy/Dockerfile` and asserts on the real image.
+
+⚠️ **Ordering:** this step builds `seeds`/`dashboard` images, but **`dashboard/Dockerfile` is written in Step 4**. Run the `probe()` block *after* Step 4, or move it to a Step 4b. Rev 4 left it at Step 2, where the dashboard file does not yet exist.
 
 🔴 **Rev 3's seeds probe was itself a check that cannot fail** — `docker run … 'find …'` with "Expected: no output" had no build guard, no sentinel and no exit assertion. If the build failed, or a **stale image from a previous rsync-and-rebuild iteration** was used, empty output read as PASS. That is the exact "absence of evidence" defect the box above condemns, reintroduced two paragraphs later. The version here proves the image was rebuilt and populated *before* concluding anything about what is absent.
 
@@ -343,7 +367,9 @@ docker run --rm conclave-api:dev python -c "import app.main; print('api imports 
       start_period: 10s
 ```
 
-`psql` ships in the official image and `PGPASSWORD` is already in the container env.
+`psql` ships in the official image. ✏️ **Two corrections to rev 4's rationale:** `PGPASSWORD` is **not** in the container env — the image exposes `POSTGRES_PASSWORD`, not `PGPASSWORD`. This works because `psql` with no `-h` uses the **Unix socket**, where the image's generated `pg_hba.conf` is `trust`. **Do not "harden" it by adding `-h 127.0.0.1` — that breaks it.** And it therefore does not *authenticate*: it proves the **role and database exist**, which is the real improvement over `pg_isready` and is enough for this gate. A wrong password still reads healthy, exactly as the note below concedes.
+
+⚠️ Set `interval` explicitly. With only `test` and `start_period`, it defaults to **30s**, so `db` is not marked healthy until the first check — every `up` pays that before `migrate` starts.
 
 ⚠️ **A realistic failure this hides:** `POSTGRES_USER`/`POSTGRES_PASSWORD` are honoured **only when the image initialises an empty volume.** An operator who mistypes the password, corrects `.env`, and re-runs `up -d` keeps the *old* credentials in the named volume — `db` reports healthy, `migrate` fails auth. **`DEPLOY.md` must say that changing `POSTGRES_PASSWORD` after first boot requires `docker compose down -v`.**
 
@@ -413,7 +439,16 @@ docker compose run --rm --no-deps migrate python scripts/apply_migrations.py --d
   || { echo "FAIL: migrations report as PENDING — schema_migrations recording is broken"; exit 1; }
 ```
 
-⚠️ **Distinguish "no output" from "pending" before trusting that message.** An unreachable DB, an unset `DATABASE_URL` (`apply_migrations.py:30` exits to stderr) or a missing image all produce empty stdout, and the `||` branch would blame `schema_migrations` for any of them — a true failure with a false diagnosis, which costs more time than no message at all. Capture the output first and branch three ways: empty → "could not run", `^up to date` → PASS, anything else → the recording is broken.
+⚠️ **Rev 4 described this three-way branch and then left the two-way command above it.** Use the three-way form — an unreachable DB, an unset `DATABASE_URL` (`apply_migrations.py:30` exits to stderr) or a missing image all produce empty stdout, and the `||` branch would blame `schema_migrations` for every one of them. A true failure with a false diagnosis costs more debugging time than no message:
+
+```bash
+out=$(docker compose run --rm --no-deps migrate python scripts/apply_migrations.py --dry-run 2>&1)
+echo "$out"
+if   [ -z "$out" ];                  then echo "FAIL: no output — could not run (image? DATABASE_URL? db down?)"; exit 2
+elif echo "$out" | grep -q "^up to date"; then echo "PASS: migrations correctly recorded as applied"
+else echo "FAIL: migrations report as PENDING — schema_migrations recording is broken"; exit 1
+fi
+```
 
 Expected: `PASS: …`. **This fails if recording ever breaks** — which is the entire point. `--no-deps` stops the dependency graph restarting anything.
 
@@ -438,7 +473,7 @@ Also note that `restart: unless-stopped` is enforced per-container by the daemon
 
 - [ ] **Step 1: 🔴 No `${VAR:?}` on a profiled service**
 
-Compose interpolates the whole document **before** profile filtering, so a required-variable error in a profiled service aborts *every* command — including the default `docker compose up`, `config`, and `ps`. Use `${SEED_GENERAL_KEY:-}` and let the seed fail at startup with its own message. Add `SEED_GENERAL_KEY=` to the root `.env.example`; it is currently defined in **neither** root `.env` nor `.env.example`.
+Compose interpolates the whole document **before** profile filtering, so a required-variable error in a profiled service aborts *every* command — including the default `docker compose up`, `config`, and `ps`. Use `${SEED_GENERAL_KEY:-}` and let the seed fail at startup with its own message. **All four `SEED_*` keys are added to `.env.example` in Task 0 Step 1** — that is the single place listing them, so do not add any here. They are currently defined in **neither** root `.env` nor `.env.example`. *(Rev 3 and rev 4 both named only `SEED_GENERAL_KEY` in this step while declaring four elsewhere — the duplicate instruction is what kept the count drifting.)*
 
 - [ ] **Step 2: 🔴 Never give the sub-services the backend's `.env`**
 
@@ -458,7 +493,13 @@ Give each service an **explicit `environment:` block only**, or its own env file
 
 🔴 **But (b) has a consequence rev 2 did not state, and `docker compose config` CANNOT catch it.** A container using `network_mode: service:api` **cannot declare its own `ports:`** — the daemon rejects that combination at create time, while both `docker compose config` and `docker compose --dry-run up` pass it silently. So **the `8503` publish must move onto the `api` service**, which means port 8503 is published even when the dashboard profile is off. State that explicitly in `compose.yaml`; a reader who sees 8503 on `api` will otherwise "fix" it.
 
-🔒 **Bridge the name mismatch:** the dashboard reads `CONCLAVE_ADMIN_KEY`, the backend defines `ADMIN_API_KEY`. Without it every admin call sends `Authorization: Admin ` — which until `fa0411c` would have *authenticated*, and now correctly returns **403** (not 401; `auth.py:184,186,190` raises 403 (renumbered by `fa0411c`)).
+🔒 **Bridge the name mismatch — in compose, not in `.env`.** The dashboard reads `CONCLAVE_ADMIN_KEY` (`dashboard/api_client.py:38`), the backend defines `ADMIN_API_KEY`. Set it on the dashboard service:
+
+```yaml
+      CONCLAVE_ADMIN_KEY: ${ADMIN_API_KEY:?}
+```
+
+**One secret, one place.** ⚠️ **Do NOT add `CONCLAVE_ADMIN_KEY` to `.env.example`.** The other reading of "bridge the mismatch" is that the operator fills in a second copy — and since Task 0 ships compose-only keys **empty** while `DEPLOY.md` names only `POSTGRES_PASSWORD` and `ADMIN_API_KEY` as must-set, that path sends `Authorization: Admin ` and **every dashboard panel returns 403** with nothing explaining why. (403, not 401 — `auth.py:184,186,190`. Until `fa0411c` it would have *authenticated* instead, which is worse.)
 
 - [ ] **Step 4: Prove the default `up` starts NO profile**
 
@@ -537,6 +578,8 @@ Known callers to update: `app/main.py:21,154` · `app/routers/internal/admin_bet
 
 - [ ] **Step 1: Failing test first**, then the script.
 - [ ] **Step 2: Asserts** `/health` 200 → mint a throwaway key → post a question → read it back → clean up. 🔒 **It must NOT assert an answer arrives** — the default stack has no LLM by design, so that assertion would be a lie. `--with-answer` is opt-in and only meaningful with `--profile seeds`.
+
+⚠️ **The base URL must be `http://api:8000`, not `localhost`.** Inside `docker compose run --rm api …` the container is *not* the server — `localhost` is the ephemeral run container, which serves nothing. *(Also note `/health` is a static `{"status":"ok"}` with no DB access, `main.py:167-169`, so in the Step 3 failure probe the non-zero exit comes from the mint step, not the health check. Both work; just don't expect `/health` to be what notices a dead database.)*
 - [ ] **Step 3: 🔴 Prove it can fail — with `--no-deps`**
 
 Rev 1 stopped `db` then ran `docker compose run`, which **restarts `db` via the dependency graph**, so the test passed and proved nothing.
@@ -556,7 +599,7 @@ Expected: `0` then **non-zero**. A smoke test that has never failed has not been
 
 ### Task 6: `DEPLOY.md`
 
-- [ ] **Step 1: Write it** — prerequisites, `cp .env.example .env`, **which variables must be set before first boot** (`POSTGRES_PASSWORD` and `ADMIN_API_KEY` — note the real name; the spec's `ADMIN_KEY` is wrong), URL-safe password generation, `docker compose up -d`, minting the first key, the smoke test, the two profiles, and **the upgrade sequence from Task 2 Step 7**.
+- [ ] **Step 1: Write it** — prerequisites, `cp .env.example .env`, **which variables must be set before first boot** (`POSTGRES_PASSWORD` and `ADMIN_API_KEY` — **and only those two**; `CONCLAVE_ADMIN_KEY` is bridged in compose, not set by hand), URL-safe password generation, `docker compose up -d`, minting the first key, the smoke test, the two profiles, and **the upgrade sequence from Task 2 Step 7**.
 - [ ] **Step 2: State the security posture honestly**
 
 The API publishes to loopback only, and exposing it is a deliberate decision requiring a TLS reverse proxy · `ENVIRONMENT=production` is the shipped default and why (Task 0 Step 2's table) · zero-seed mode is the default · **known limitation: no spend cap on seed inference** (Phase 2.6, designed, unbuilt) · **the moderation gate is optional, and if enabled, Claude Haiku 4.5 is what is validated** — quote the measured figures and point at `evals/moderation/` for re-validation.
@@ -578,7 +621,17 @@ Also correct the "Running the app" section, which documents the five production 
 
 The plan's own Task 0 note says *"the design spec has been amended (`5dc36ab`); keep it in sync if any of the five change again."* All five just did, and **no task updates the spec**. Worse, the spec now actively contradicts the plan: `2026-08-02-self-hostable-stack-design.md:102` still says *"`.env.example` ships those values **empty** so the guards actually fire"* — and a reader following that ships `ADMIN_API_KEY` empty, **the exact rev-2 security regression rev 3 forbids.**
 
-Rewrite spec lines 92 and 102 against Task 0 Step 2's table, and record `ENVIRONMENT=production` as the shipped default.
+✏️ **Rev 4 named the wrong lines.** Line 92 needs **nothing** — `5dc36ab` already fixed it. The genuine contradictions are:
+
+| Spec line | Says | Contradicted by |
+|---|---|---|
+| `:102` | "`.env.example` ships those values **empty** so the guards actually fire" | Task 0 Step 3 — **this is the rev-2 security regression; a reader following the spec reintroduces it** |
+| `:72` | dashboard "published on `127.0.0.1:8503` … reached over an SSH tunnel" | Task 3 Step 3(b) — the dashboard gets **no `ports:`**; 8503 moves to `api`. **The spec is the third copy of the false loopback claim** that Steps 4c and Task 6 Step 2 fix in the other two files |
+| `:115-117` | one root `.env`, services take it via `env_file` | Task 3 Step 2 — "never give the sub-services the backend's `.env`" |
+| `:118` | "`.env.example` gains a `DATABASE_URL` pointing at the `db` service" | Task 2 Step 2 — interpolated in compose instead |
+| `:159` | out of scope: "any CI change beyond repairing paths" | Task 8 adds two |
+
+Also record `ENVIRONMENT=production` as the shipped default, which the spec does not mention at all.
 
 - [ ] **Step 4c: Fix the twin false network claim in `README.md`**
 
