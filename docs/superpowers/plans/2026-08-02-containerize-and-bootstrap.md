@@ -1,4 +1,4 @@
-# Containerize & Bootstrap Implementation Plan — **revision 3**
+# Containerize & Bootstrap Implementation Plan — **revision 4**
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -38,7 +38,7 @@
 > ### 🔴 C-4 — the TTL decision 500s on create and 404s on a successful extend
 > The SQL analysis was right; it stops one layer too early. `BetaUserCreated.key_expires_at` is `datetime`, **not** `datetime | None` (`admin_beta_users.py:40`) — writing NULL raises an unhandled `ValidationError` → **500 on every mint under the new default**. And extend uses `None` as its row-not-found sentinel (`if new_expiry is None: raise HTTPException(404)`), so a **successful** extend of a never-expiring key returns `404 user_not_found` after modifying the row.
 > ✏️ **My SQL citation was also wrong:** the extend site is `COALESCE(key_expires_at, NOW()) + make_interval(days => $2)`, not bare `make_interval` — a *different* trap from the one I described.
-> ✏️ **And "expected 575/65/4 plus new tests" is false** — `tests/test_beta_accounts.py:93,144,167` and `tests/test_admin_audit_log.py:53,66,71` all assert an expiry exists. At least three break.
+> ✏️ **And "expected 579/65/4 (the baseline moved with `fa0411c`) plus new tests" is false** — `tests/test_beta_accounts.py:93,144,167` and `tests/test_admin_audit_log.py:53,66,71` all assert an expiry exists. At least three break.
 >
 > ### 🔴 C-2 — the ENVIRONMENT decision resolves 1 of 3 blockers and still names no value
 > `preflight.py` hard-fails production on **five** things. The decision relaxed only `anthropic_api_key` and then claimed "the other production controls stay unconditional" while naming just two of the remaining four. Still blocking the same user: line 30 `moderation_gate_enabled` — which makes the *"private team runs with the gate off"* posture the decision explicitly endorses **impossible under `production`** — and line 38 `trusted_proxy_ips`, which a LAN self-hoster without a proxy does not have. **The plan still never states which `ENVIRONMENT` value ships**, yet Task 6 Step 2 tells the writer to document "whatever Task 0 Step 2 settles on." **Fix:** decide all five. `warn_self_host_posture` (`preflight.py:64`) already exists and is the right home for the gate check.
@@ -113,6 +113,10 @@ conclave_admin_key: str = ""     # compose-only; the dashboard's name for ADMIN_
 
 🔒 **The test for this must use a NON-EMPTY value.** A test that writes an empty key passes vacuously, because empty undeclared keys are skipped — it would prove nothing and hide the bug it was written for.
 
+📌 `app/config.py` does not literally contain `extra='forbid'` — it is pydantic-settings' **default**. A reader who greps for the string and finds nothing may wrongly conclude the constraint is gone.
+
+📌 **All five keys go in `.env.example` too**, empty, under a commented `# ── Compose profiles ──` block — not just `SEED_GENERAL_KEY`. Rev 3 declared four seed keys in `Settings` and then added one to `.env.example` in Task 3, leaving an operator enabling the profile to discover three undocumented variables.
+
 - [ ] **Step 1b: Prove the failure first**
 
 Reproduce the break before fixing it — a fix you have not seen fail is not verified:
@@ -151,11 +155,35 @@ This is find #10 in the recurring pattern: **controls written for a public multi
 |---|---|---|
 | 26 | admin key unset or `dev-admin-key` | **Stays a hard failure**, and the rejected set widens to include `change-me-to-a-strong-secret` and any other shipped placeholder. Empty is now *also* caught at request time by SEC-1's fix. |
 | 30 | `moderation_gate_enabled` false | 🔄 **Becomes a WARNING, not a failure.** Rev 2's own decision says *"a private team that trusts its own agents runs with the gate off — a legitimate, now-supported posture"*, and a hard failure here makes that posture **impossible**. `warn_self_host_posture` (`preflight.py:64`) already exists and already does exactly this — move it there. |
-| 33 | `rate_limit_enabled` false | **Stays a hard failure.** It protects against runaway cost and abuse regardless of who the agents are, and costs a self-hoster nothing to leave on. |
+| 33 | `rate_limit_enabled` false | **Stays a hard failure** — it protects against runaway cost and abuse regardless of who the agents are. 🔴 **But it is NOT on today: `.env.example:104` ships `RATE_LIMIT_ENABLED=false` and `config.py:129` defaults it `False`.** This step must flip `.env.example` to `true` or the `production` default below refuses to boot. Leave the *config* default `False` — the tests rely on it. |
 | 34 | `anthropic_api_key` empty | 🔄 **Required only when the gate is enabled.** Unconditionally requiring it makes production unbootable for the bring-your-own-LLM user this phase targets. |
-| 38 | `trusted_proxy_ips` empty | 🔄 **Required only when a proxy is declared.** A LAN self-hoster with no reverse proxy has none, and hard-failing on it blocks the default topology. |
+| 38 | `trusted_proxy_ips` empty | 🔄 **Becomes a WARNING, same as line 30.** ⚠️ Rev 3 said "required only when a proxy is declared" — **there is no such declaration in the codebase.** `trusted_proxy_ips` is the only proxy-related setting (`grep -rn proxy app/` → `config.py:142`, `waitlist.py:23,26`, `preflight.py:38`), so that condition compiles to `if x and not x` — dead code. Implemented literally it either does nothing or invents a setting nothing reads. Moving it to `warn_self_host_posture` keeps the signal for the operator who *does* front it with Caddy and never sets it — otherwise their rate limiter silently collapses to one shared bucket. |
 
-✅ **`.env.example` ships `ENVIRONMENT=production`.** Rev 2 never named the value, while Tasks 6 and 7 both depend on it. Shipping `dev` means the admin-key and rate-limit guards never run on the documented path — which is how SEC-1 stayed reachable. With the four dispositions above, `production` becomes bootable for the target user, so it is the correct default and the guards actually fire.
+✅ **`.env.example` ships `ENVIRONMENT=production`.** Rev 2 never named the value, while Tasks 6 and 7 both depend on it. Shipping `dev` means the admin-key and rate-limit guards never run on the documented path — which is how SEC-1 stayed reachable.
+
+🔴 **A decision is not true until `.env.example` matches it.** Rev 3 set the default and left `RATE_LIMIT_ENABLED=false` on line 104, so the api container would have raised `RuntimeError` in the lifespan (`app/main.py:64`), exited, and — with `restart: unless-stopped` — **crash-looped on the plan's headline command.** Verified against the real preflight. **This step therefore edits `.env.example` too:** `ENVIRONMENT=production` **and** `RATE_LIMIT_ENABLED=true`.
+
+- [ ] **Step 2b: Prove the shipped file actually boots — this step had no verification at all**
+
+```bash
+cp .env.example /tmp/prodprobe.env
+sed -i 's/^ADMIN_API_KEY=.*/ADMIN_API_KEY=a-real-strong-secret/' /tmp/prodprobe.env
+sed -i 's/^POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=probe/' /tmp/prodprobe.env
+python - <<'PY'
+from dotenv import dotenv_values
+from app.config import Settings
+from app.services.preflight import assert_production_safety
+s = Settings(**{k.lower(): v for k, v in dotenv_values('/tmp/prodprobe.env').items() if v is not None})
+try:
+    assert_production_safety(s)
+    print("PASS: the shipped .env.example boots under ENVIRONMENT=production")
+except RuntimeError as e:
+    print("FAIL: shipped defaults refuse to boot:\n" + str(e)); raise SystemExit(1)
+PY
+rm -f /tmp/prodprobe.env
+```
+
+Expected: `PASS: …`, exit 0. **This fails if any of the five dispositions is decided but not reflected in `.env.example`** — which is precisely how rev 3 broke. The two `sed` edits are the only two an operator is told to make; if a third is needed, this step catches it.
 
 ⚠️ **This changes security posture — the design spec has been amended (`5dc36ab`); keep it in sync if any of the five change again.**
 
@@ -186,7 +214,19 @@ Justin's question — must a self-hoster buy Anthropic, or could they use Grok? 
 
 🔑 **The distinction to carry forward: a guard only protects the path it is actually on.** Verify which mechanism reads a variable before relying on a guard attached to a different one.
 
-- [ ] **Step 4: Write the failing tests first**, then implement. Run `./scripts/run_all_tests.sh` — expected 575/65/4 plus the new cases.
+- [ ] **Step 4: Write the failing tests first**, then implement — and update the three existing preflight tests this step breaks
+
+🔴 **The dispositions in Step 2 break currently-passing tests, and rev 3 did not say so** — the same omission it criticised in rev 2's Task 4:
+
+- `tests/test_preflight.py:40` — `({"moderation_gate_enabled": False}, "moderation_gate_enabled")` expects `RuntimeError`; it will no longer raise.
+- `tests/test_preflight.py:43` — same for `trusted_proxy_ips`.
+- `tests/test_preflight.py:51-56` — `test_production_lists_all_failures_at_once` asserts `"moderation_gate_enabled" in msg`.
+
+(`:42`, the `anthropic_api_key` case, survives — `_good_prod` sets `moderation_gate_enabled=True`.)
+
+Two comment blocks also become false and must be rewritten in the same commit: `tests/test_preflight.py:79-84` and the `warn_self_host_posture` docstring at `preflight.py:67-71`, both of which currently explain that the gate check is deliberately *not* a warning.
+
+Run `./scripts/run_all_tests.sh` — expected **579/65/4 plus the new cases, minus nothing**. A test that vanishes rather than being updated is a regression wearing a green tick.
 
 - [ ] **Step 5: Commit**
 
@@ -235,16 +275,29 @@ Expected: `clean — …`, exit 0.
 
 🔴 **Run this probe against ALL THREE images, not just the API one.** Rev 2 probed only `conclave-api:dev` — whose Dockerfile uses explicit `COPY app/ migrations/ scripts/` and was never the risk. **`seeds/Dockerfile` is `COPY . .`** (8 lines, line 5), which is the context the C4 fix exists for and the one rev 2 never exercised.
 
-And **create a real `seeds/.env` in the tree first**, so the check has something to catch — otherwise it passes because nothing was there, not because the ignore worked:
+⚠️ **The API probe above cannot be reused verbatim** — it asserts `/app/app/main.py`, but the seeds image has `/app/main.py` and the dashboard image `/app/Home.py`. Parameterise it rather than leaving the adaptation to the implementer:
 
 ```bash
-printf 'LLM_API_KEY=probe-should-never-ship\n' > seeds/.env   # scratch; delete after
-docker build -t conclave-seed:probe ./seeds
-docker run --rm conclave-seed:probe sh -c 'find / -name ".env" -not -path "/proc/*" 2>/dev/null | head -3'
-rm -f seeds/.env
+probe() {   # $1=image  $2=context  $3=sentinel file that proves the COPY worked
+  printf 'LLM_API_KEY=probe-should-never-ship\n' > "$2/.env"     # plant a real leak target
+  docker build -q -t "$1" "$2" >/dev/null || { echo "FAIL($1): build"; rm -f "$2/.env"; return 2; }
+  rm -f "$2/.env"
+  docker run --rm "$1" sh -c "
+    test -f '$3' || { echo 'FAIL($1): $3 missing — COPY wrong or stale image'; exit 2; }
+    if find / -name '.env' -not -path '/proc/*' 2>/dev/null | grep -q .; then
+      echo 'LEAK($1): a .env shipped in the image'; exit 1; fi
+    echo 'clean($1)'
+  "
+  echo "  exit=$?"
+}
+probe conclave-api:probe       .           /app/app/main.py
+probe conclave-seed:probe      ./seeds     /app/main.py
+probe conclave-dashboard:probe ./dashboard /app/Home.py
 ```
 
-Expected: **no output** from the `find`. Use `find`, not a top-level `ls` — a nested `.env` one directory down is exactly what a `COPY . .` drags in and what a top-level listing misses.
+Expected: `clean(...)  exit=0` three times.
+
+🔴 **Rev 3's seeds probe was itself a check that cannot fail** — `docker run … 'find …'` with "Expected: no output" had no build guard, no sentinel and no exit assertion. If the build failed, or a **stale image from a previous rsync-and-rebuild iteration** was used, empty output read as PASS. That is the exact "absence of evidence" defect the box above condemns, reintroduced two paragraphs later. The version here proves the image was rebuilt and populated *before* concluding anything about what is absent.
 
 - [ ] **Step 3: `deploy/Dockerfile`** — as in rev 1 (non-root `conclave` uid 10001, explicit `COPY app/ migrations/ scripts/`, `--workers 1` baked in with the nine-background-workers rationale in a comment). Binding `0.0.0.0` inside the container is correct; compose publishes to `127.0.0.1`.
 
@@ -275,7 +328,19 @@ docker run --rm conclave-api:dev python -c "import app.main; print('api imports 
 
 - [ ] **Step 2: Write `compose.yaml`** — `db`, `migrate`, `api`.
 
-🔴 **`db` MUST set `POSTGRES_USER=conclave` and `POSTGRES_DB=conclave`.** The DSN below is `postgresql://conclave:…@db:5432/conclave`, but the official image with only `POSTGRES_PASSWORD` set creates role **`postgres`** and database **`postgres`** — role `conclave` would not exist and `migrate` would fail. **And bare `pg_isready` returns 0 as soon as the server accepts connections regardless of roles**, so the healthcheck goes *green* while the dependent fails — a gate that reports success for a broken state. Use `pg_isready -U conclave -d conclave` with a `start_period`.
+🔴 **`db` MUST set `POSTGRES_USER=conclave` and `POSTGRES_DB=conclave`.** The DSN below is `postgresql://conclave:…@db:5432/conclave`, but the official image with only `POSTGRES_PASSWORD` set creates role **`postgres`** and database **`postgres`** — role `conclave` would not exist and `migrate` would fail.
+
+🔴 **The healthcheck must actually authenticate — `pg_isready -U … -d …` does NOT.** Rev 3 prescribed adding those flags; they change nothing. From PostgreSQL 16's own man page on the target VM: *"It is not necessary to supply correct user name, password, or database name values to obtain the server status."* `PQping` returns OK for any server response, so a missing role, missing database or wrong password all read **healthy**. Use a real query:
+
+```yaml
+    healthcheck:
+      test: ["CMD-SHELL", "psql -U conclave -d conclave -c 'SELECT 1' >/dev/null 2>&1"]
+      start_period: 10s
+```
+
+`psql` ships in the official image and `PGPASSWORD` is already in the container env.
+
+⚠️ **A realistic failure this hides:** `POSTGRES_USER`/`POSTGRES_PASSWORD` are honoured **only when the image initialises an empty volume.** An operator who mistypes the password, corrects `.env`, and re-runs `up -d` keeps the *old* credentials in the named volume — `db` reports healthy, `migrate` fails auth. **`DEPLOY.md` must say that changing `POSTGRES_PASSWORD` after first boot requires `docker compose down -v`.**
 
 🔴 **`api` and `migrate` must both carry an explicit `environment: DATABASE_URL:` that overrides the file.** They need `env_file: .env` for the other ~30 settings, and `.env.example:9` ships `DATABASE_URL=…@localhost:5432/…` — which inside a container is the container itself. Without the explicit override the API silently points at its own loopback. *(The spec says `.env.example` "gains a `DATABASE_URL` pointing at the db service"; this plan instead interpolates it in compose and leaves the file's value as the systemd path. **State that in a comment**, or the next reader implements the other one.)*
 
@@ -316,7 +381,7 @@ echo "api started:      $api_start"
 python3 -c "
 import sys, datetime as dt
 def f(s):
-    if s.startswith('0001-'):          # Docker's zero value: never started/finished
+    if not s or s.startswith('0001-'):  # empty id, or Docker's zero value: never ran
         return None
     return dt.datetime.fromisoformat(s)   # py3.11+ parses Z and any precision natively
 m, a = f('$mig_end'), f('$api_start')
@@ -342,6 +407,8 @@ docker compose run --rm --no-deps migrate python scripts/apply_migrations.py --d
   && echo "PASS: migrations correctly recorded as applied" \
   || { echo "FAIL: migrations report as PENDING — schema_migrations recording is broken"; exit 1; }
 ```
+
+⚠️ **Distinguish "no output" from "pending" before trusting that message.** An unreachable DB, an unset `DATABASE_URL` (`apply_migrations.py:30` exits to stderr) or a missing image all produce empty stdout, and the `||` branch would blame `schema_migrations` for any of them — a true failure with a false diagnosis, which costs more time than no message at all. Capture the output first and branch three ways: empty → "could not run", `^up to date` → PASS, anything else → the recording is broken.
 
 Expected: `PASS: …`. **This fails if recording ever breaks** — which is the entire point. `--no-deps` stops the dependency graph restarting anything.
 
@@ -386,7 +453,7 @@ Give each service an **explicit `environment:` block only**, or its own env file
 
 🔴 **But (b) has a consequence rev 2 did not state, and `docker compose config` CANNOT catch it.** A container using `network_mode: service:api` **cannot declare its own `ports:`** — the daemon rejects that combination at create time, while both `docker compose config` and `docker compose --dry-run up` pass it silently. So **the `8503` publish must move onto the `api` service**, which means port 8503 is published even when the dashboard profile is off. State that explicitly in `compose.yaml`; a reader who sees 8503 on `api` will otherwise "fix" it.
 
-🔒 **Bridge the name mismatch:** the dashboard reads `CONCLAVE_ADMIN_KEY`, the backend defines `ADMIN_API_KEY`. Without it every admin call sends `Authorization: Admin ` — which until `fa0411c` would have *authenticated*, and now correctly returns **403** (not 401; `auth.py:176,180` raises 403).
+🔒 **Bridge the name mismatch:** the dashboard reads `CONCLAVE_ADMIN_KEY`, the backend defines `ADMIN_API_KEY`. Without it every admin call sends `Authorization: Admin ` — which until `fa0411c` would have *authenticated*, and now correctly returns **403** (not 401; `auth.py:184,186,190` raises 403 (renumbered by `fa0411c`)).
 
 - [ ] **Step 4: Prove the default `up` starts NO profile**
 
@@ -406,6 +473,12 @@ curl -sS -o /dev/null -w "dashboard http=%{http_code}\n" http://127.0.0.1:8503/
 ```
 
 Expected: `200`. Do **not** use `curl -f` with `-w "%{http_code}"` — `-f` aborts on ≥400 and the code never prints, so a failure looks like a blank instead of a number.
+
+- [ ] **Step 5b: 🔴 Delete the `conclave-internal` network from `seed.base.yml` — no task did this**
+
+`seeds/seed.base.yml:8` is `networks: [ conclave-internal ]`, declared `external: true` in `seeds/docker-compose.yml:25-27`. The spec lists it under "Fixed along the way"; every revision has listed `seed.base.yml` in Task 3's Files and **no step has ever removed it**. Compose's default network is correct in the monorepo, so delete the stanza.
+
+⚠️ **`docker compose config` will not catch this** — verified on the VM: `--profile seeds config` exits **0**, while `--profile seeds --dry-run up -d` reports `network conclave-internal declared as external, but could not be found`. So Step 4's config check passes and the failure only appears at `up`.
 
 - [ ] **Step 6: Retire the competing topology**
 
@@ -429,6 +502,9 @@ Expected: `200`. Do **not** use `curl -f` with `-w "%{http_code}"` — `-f` abor
 1. **`BetaUserCreated.key_expires_at` is `datetime`, not `datetime | None`** (`admin_beta_users.py:40`), and the model is constructed directly in Python at `:96-105`. Writing NULL raises an unhandled `ValidationError` → **500 on every mint under the new default**. `ExtendResponse.key_expires_at` (`:56`) has the same problem. **Both must become `datetime | None`.**
 2. **Extend uses `None` as its row-not-found sentinel** — `new_expiry = await pool.fetchval(...)` then `if new_expiry is None: raise HTTPException(404, "user_not_found")`. Write NULL and a **successful** extend returns 404 *after modifying the row*. **Replace the sentinel with an explicit existence check** (`SELECT 1 FROM agents WHERE user_id = $1`) so "no such user" and "no expiry" stop sharing a representation.
 3. ✏️ **My SQL citation was wrong.** The extend site is `COALESCE(key_expires_at, NOW()) + make_interval(days => $2)` (`:143-144`), **not** bare `make_interval`. That is a *different* trap: `COALESCE(NULL, NOW()) + make_interval(days => 0)` is `NOW()` — extending a never-expiring key by 0 days **expires it immediately**.
+4. 🔴 **A fourth defect on the same twenty lines, which rev 3 claimed were exhaustively found.** `admin_beta_users.py:157` writes the audit log with `new_expiry.isoformat()`. Under the new default `new_expiry` is `None` → **`AttributeError` → 500, after the row has already been modified.** So rev 3's own required test — *"extend a never-expiring key returns 200 with `key_expires_at: null`"* — cannot pass until this is fixed. Use `new_expiry.isoformat() if new_expiry else None`. It sits on the same code path as the sentinel replacement, so both land in one edit.
+
+⚠️ **"Three defects, all verified" was itself an over-claim.** Four is the count *found so far* on these twenty lines; treat the number as a floor, not a total.
 
 ⚠️ **"Expected 575/65/4 plus new tests" was false.** Existing tests assert an expiry exists and **will break**: `tests/test_beta_accounts.py:93` (arithmetic on `None` → TypeError), `:144`, `:167`, and `tests/test_admin_audit_log.py:53,66,71`. **Updating them is part of this task, not a surprise during it.** The new baseline is 579 (after `fa0411c`) plus whatever this task adds, minus nothing — if a test disappears rather than being updated, that is a regression in disguise.
 
@@ -447,7 +523,7 @@ grep -rn "beta-users\|beta_users\|admin_beta_users" --include='*.py' --include='
 ```
 
 Known callers to update: `app/main.py:21,154` · `app/routers/internal/admin_beta_users.py:20` · `tests/test_admin_audit_log.py:53,66,71` · `tests/test_beta_accounts.py` (×8) · `docs/internal/audit-ledger.md:54,139`. **The `beta_users` table name itself must NOT be renamed** — only the route.
-- [ ] **Step 4: `./scripts/run_all_tests.sh`** — expected 575/65/4 plus new tests. Locally; CI is 26 minutes.
+- [ ] **Step 4: `./scripts/run_all_tests.sh`** — expected 579/65/4 (the baseline moved with `fa0411c`) plus new tests. Locally; CI is 26 minutes.
 - [ ] **Step 5: Commit**
 
 ---
@@ -493,6 +569,16 @@ The goal sentence is *"a stranger clones this repository … and runs `docker co
 
 Also correct the "Running the app" section, which documents the five production preflight controls that Task 0 Step 2 changes.
 
+- [ ] **Step 4b: 🔴 Sync the design spec — every one of the five controls just changed**
+
+The plan's own Task 0 note says *"the design spec has been amended (`5dc36ab`); keep it in sync if any of the five change again."* All five just did, and **no task updates the spec**. Worse, the spec now actively contradicts the plan: `2026-08-02-self-hostable-stack-design.md:102` still says *"`.env.example` ships those values **empty** so the guards actually fire"* — and a reader following that ships `ADMIN_API_KEY` empty, **the exact rev-2 security regression rev 3 forbids.**
+
+Rewrite spec lines 92 and 102 against Task 0 Step 2's table, and record `ENVIRONMENT=production` as the shipped default.
+
+- [ ] **Step 4c: Fix the twin false network claim in `README.md`**
+
+Task 6 Step 2 corrects the `DEPLOY.md` sentence, but `README.md`'s repo-layout block still says the dashboard *"binds 127.0.0.1 by design — reached over an SSH tunnel, not exposed to a network."* Under Task 1 Step 4's mandated `--server.address=0.0.0.0` that is as false in one file as the other. **A correction applied to one of two copies is how the vault taught this lesson already.**
+
 - [ ] **Step 5: Fix the stale eval numbers in `config.py:70-72`** — the comment still reads *"1,540-verdict eval: harmful false-PASS 3.1%→0.4%."* If `DEPLOY.md` and the README are going to publish the current figures (1,370 verdicts, 0 egregious leaks, 0.0% / 1.8% / 100%), the source comment must not contradict them. **Two numbers for the same measurement is how a reader learns not to trust either.**
 
 - [ ] **Step 6: Commit**
@@ -526,16 +612,26 @@ Three docs-only commits to `master` today each ran the full 25-minute backend su
 
 🔴 **As rev 2 wrote it, this makes CI permanently red.** The runner checks out a tree with **no `.env`** (gitignored), so `${POSTGRES_PASSWORD:?}` errors on every run. The step must write a throwaway `.env` first, or export the variable in the job env:
 
+🔴 **Rev 3's own fix does not work either — verified on the VM.** `--env-file` replaces only the *interpolation* source; compose still stats the literal `env_file: .env` path that Task 2 Step 2 puts on `api` and `migrate`:
+
+```
+--env-file .env.ci, no .env  → EXIT=1  env file /tmp/…/.env not found
+write it as .env instead     → EXIT=0
+```
+
+Write the throwaway file as **`.env`** — it satisfies interpolation *and* `env_file` in one, and `.env` is already gitignored so nothing leaks:
+
 ```yaml
       - name: Validate compose file
         run: |
-          printf 'POSTGRES_PASSWORD=ci-throwaway\n' > .env.ci
-          docker compose --env-file .env.ci config > /dev/null
-          rm -f .env.ci
+          printf 'POSTGRES_PASSWORD=ci-throwaway\n' > .env
+          docker compose config > /dev/null
+          rm -f .env
 ```
 
-⚠️ **Redirect to `/dev/null`** — `docker compose config` prints resolved secrets in plaintext, and a CI log is the last place they belong.
+⚠️ **The `> /dev/null` is not tidiness — it is required.** Confirmed on the VM: `config` inlines `env_file` contents verbatim, e.g. `ADMIN_API_KEY: hunter2`. A CI log is the last place those belong.
 ⚠️ **Confirm the `homelab` runner actually has Docker** before adding this step; nothing in this project has ever needed it there.
+⚠️ **Prove the step can fail** — run it once against a deliberately broken `compose.yaml` in a scratch directory. As written it would go green on a no-op, which is how a validation step becomes decoration.
 - [ ] **Step 3: Prove both** — one docs-only commit that skips, one code commit that does not.
 - [ ] **Step 4: Commit**
 
