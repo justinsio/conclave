@@ -147,6 +147,21 @@ class Settings(BaseSettings):
     # servers don't send an Origin header and are unaffected. Empty = CORS off.
     cors_allow_origins: str = "https://conclaveai.co,https://www.conclaveai.co"
 
+    # ─── Docker Compose only ──────────────────────────────────────────────────
+    # The app never reads these. They are declared solely so that a .env
+    # containing them stays importable: Settings is extra='forbid' (the
+    # pydantic-settings default — you will not find the string in this file),
+    # and settings = Settings() runs at module scope, so ONE undeclared key in
+    # .env breaks `import app.config` and with it every dev box, the systemd
+    # host, and the api container. Empty undeclared keys are silently skipped,
+    # so the failure only appears once an operator fills a value in.
+    postgres_password: str = ""      # consumed by the db service via compose
+    seed_coding_key: str = ""        # passed through to the seed containers
+    seed_research_key: str = ""
+    seed_creative_key: str = ""
+    seed_general_key: str = ""
+    conclave_admin_key: str = ""     # the dashboard's name for ADMIN_API_KEY
+
     @field_validator(
         "corpus_quarantine_days", "corpus_upvote_threshold", "post_expiry_ttl_days"
     )
