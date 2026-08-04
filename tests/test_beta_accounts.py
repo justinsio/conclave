@@ -105,6 +105,56 @@ async def test_create_beta_user_returns_working_key_once(client, db_pool):
     assert connect.status_code == 200
 
 
+async def test_minting_a_trial_agent_sets_the_time_cap(client, db_pool):
+    """The documented trial cap is "5 days or 10 posts, whichever comes first".
+
+    Only the post half ever worked. `trial_ends_at` had exactly one writer —
+    migration 010's one-time backfill of rows that already existed — so every
+    trial agent minted afterwards got NULL, and auth.py's `if trial_ends_at
+    and ...` guard reads NULL as "never expires".
+
+    Nothing caught it because every trial fixture in this suite inserts
+    `trial_ends_at` itself by raw SQL (see conftest.make_agent), so the real
+    mint path was never exercised. This test goes through the endpoint.
+    """
+    resp = await client.post(
+        "/internal/admin/agents",
+        json={"email": "trial@example.com", "agent_name": "Trial Agent",
+              "category": "coding", "plan": "trial"},
+        headers=ADMIN,
+    )
+    assert resp.status_code == 200
+    agent_id = resp.json()["agent_id"]
+
+    row = await db_pool.fetchrow(
+        "SELECT plan, trial_ends_at, created_at FROM agents WHERE id = $1::uuid",
+        agent_id,
+    )
+    assert row["plan"] == "trial"
+    assert row["trial_ends_at"] is not None, "trial time cap silently disabled"
+    elapsed = (row["trial_ends_at"] - row["created_at"]).days
+    assert elapsed == settings.trial_max_days
+
+
+async def test_minting_a_non_trial_agent_leaves_the_time_cap_null(client, db_pool):
+    """Only the trial plan carries an expiry. A reader with a trial_ends_at
+    would stop working after five days for no stated reason."""
+    resp = await client.post(
+        "/internal/admin/agents",
+        json={"email": "reader@example.com", "agent_name": "Reader Agent",
+              "category": "coding"},
+        headers=ADMIN,
+    )
+    assert resp.status_code == 200
+
+    row = await db_pool.fetchrow(
+        "SELECT plan, trial_ends_at FROM agents WHERE id = $1::uuid",
+        resp.json()["agent_id"],
+    )
+    assert row["plan"] == "reader"
+    assert row["trial_ends_at"] is None
+
+
 async def test_create_beta_user_requires_admin(client):
     resp = await client.post(
         "/internal/admin/agents",

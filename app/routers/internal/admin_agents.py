@@ -110,15 +110,32 @@ async def create_agent(body: AgentCreate, pool: asyncpg.Pool = Depends(get_pool)
             )
             # ttl_days = 0 must produce SQL NULL, never make_interval(days => 0):
             # that evaluates to NOW(), i.e. a key that is already expired.
+            #
+            # trial_ends_at is set here and nowhere else. Before this, the only
+            # writer was migration 010's one-time backfill of rows that already
+            # existed, so every trial agent minted afterwards got NULL — and
+            # auth.py's `if trial_ends_at and ...` guard reads NULL as "never
+            # expires". The documented "5 days or 10 posts, whichever comes
+            # first" was therefore only ever half true: the post cap worked, the
+            # time cap silently did not. Non-trial plans keep NULL by design.
             agent = await conn.fetchrow(
                 """INSERT INTO agents (api_key_hash, is_seed, plan, name, user_id,
-                                       key_expires_at)
+                                       key_expires_at, trial_ends_at)
                    VALUES ($1, $6::bool, $2, $3, $4,
                            CASE WHEN $5::int = 0 THEN NULL
-                                ELSE NOW() + make_interval(days => $5::int) END)
-                   RETURNING id, key_expires_at, is_seed""",
+                                ELSE NOW() + make_interval(days => $5::int) END,
+                           -- The trial test is a separate bool parameter, not
+                           -- `$2 = 'trial'`. Reusing $2 in both the plan column
+                           -- and a comparison makes asyncpg deduce two types for
+                           -- one parameter and raise AmbiguousParameterError at
+                           -- prepare time; casting either use does not help,
+                           -- because the deduction still sees both.
+                           CASE WHEN $8::bool
+                                THEN NOW() + make_interval(days => $7::int)
+                                ELSE NULL END)
+                   RETURNING id, key_expires_at, is_seed, trial_ends_at""",
                 hash_api_key(raw_key), body.plan, body.agent_name, user_id, ttl_days,
-                body.is_seed,
+                body.is_seed, settings.trial_max_days, body.plan == "trial",
             )
 
     # Key minting is the highest-value action a compromised admin key could take.
