@@ -11,7 +11,7 @@
 ---
 
 > [!success] ✅ **PHASE COMPLETE — all 8 tasks executed 2026-08-02/03.** Suites **588 → 613 / 67 / 4**.
-> The goal sentence is met and was verified the way it is written: on **VM 1120 `conclave-freshbox` (.124)**, a box that had never run Conclave, built on `local-lvm` so it can be snapshotted and rolled back — the capability Task 7 said this phase needed and 1113 could not provide.
+> The goal sentence is met and was verified the way it is written: on a **dedicated fresh VM** that had never run Conclave, built on snapshot-capable storage so it could be rolled back between attempts — the capability Task 7 said this phase needed and the dev box could not provide.
 >
 > **What execution found that six paper revisions could not.** Session 1: an empty seed key crashing inside httpx, `mint_key.py` building a raw asyncpg pool without the app's jsonb codecs, HTTP errors leaking from a CLI as tracebacks. Session 2, larger:
 > - 🔴 **The entire `seeds` profile was non-functional.** `create_agent` hardcoded `is_seed FALSE`, so every key this document told an operator to mint for a seed got **403**; and compose forwarded no LLM configuration, so seeds fell back to their own container's `localhost`. **`docker compose config` passes both** — it validates what is present, never what is missing.
@@ -81,16 +81,16 @@ Revision 1 was audited cold and came back **not safe to execute**: 8 criticals. 
 
 ## Environment — verified by execution 2026-08-02
 
-**Development happens on VM 1113 `conclave-sut` (192.168.32.117), not the Windows box.**
+**Development happens on a Linux VM, not the Windows workstation.**
 
-- Windows has no Docker and no WSL; an ISO install needs a console. 1113 is a **real VM** (not an LXC), so Docker behaves as it would for a stranger — no nesting or keyctl caveats.
+- Windows has no Docker and no WSL; an ISO install needs a console. The dev box is a **real VM** (not a container), so Docker behaves as it would for a stranger — no nesting or keyctl caveats.
 - Debian 12 bookworm, 4 cores, 11 GB RAM, 2.5 G of 40 G used, passwordless sudo as user `conclave`.
 - **Docker 29.7.1 / Compose v5.3.1**, from Docker's signed APT repo (key `9DC858229FC7DD38854AE2D88D81803C0EBFCD88`), storage driver `overlayfs`, usable without `sudo`.
 - Test A's `conclave.service` and `postgresql@16-main` are **stopped and disabled**, freeing ports 8000 and 5432. Reversible with `systemctl enable --now`.
 - 🔑 **`depends_on: condition: service_completed_successfully` was proven at runtime on this exact version** — a two-service probe printed the one-shot's output before the dependent's. The migration-ordering guarantee rests on this and is no longer a citation.
-- ⚠️ **1113 cannot be snapshotted** (disk on `nvme1a`, plain LVM — `qm snapshot` returns *"snapshot feature is not available"*). Task 7 needs a separate guest on `local-lvm` (lvmthin, snapshot-capable).
+- ⚠️ **The dev box cannot be snapshotted** — its disk sits on plain LVM, where the hypervisor reports *"snapshot feature is not available"*. Task 7 therefore needs a **separate guest on thin-provisioned storage**. 🔑 Worth knowing generally: *whether a VM can be rolled back is a property of the storage it was created on, and it cannot be changed afterwards.*
 
-**Iteration loop:** edit on Windows → `rsync` to 1113 → run compose there. Never push to test: CI takes ~26 min.
+**Iteration loop:** edit on Windows → `rsync` to the dev box → run compose there. Never push to test: CI takes ~26 min.
 
 **Facts about the code, verified — do not re-derive:**
 
@@ -673,7 +673,7 @@ Task 6 Step 2 corrects the `DEPLOY.md` sentence, but `README.md`'s repo-layout b
 
 **This is the task the phase exists for.** Until it runs, `DEPLOY.md` is a hypothesis.
 
-- [ ] **Step 1: Build a snapshot-capable guest** — a new VM on `local-lvm` (lvmthin, 3.7 TB free) from a Debian cloud image + cloud-init. **Not 1113** (it has hosted Conclave and cannot be snapshotted); **not the ISO** (interactive console, undriveable here).
+- [ ] **Step 1: Build a snapshot-capable guest** — a new VM on thin-provisioned storage, from a Debian cloud image + cloud-init. **Not the dev box** (it has already hosted Conclave, and its storage cannot snapshot); **not an ISO install** (interactive console, undriveable here).
 - [ ] **Step 2: Snapshot it clean** immediately after Docker install, before any Conclave state. That snapshot is the fresh box, and rollback makes Step 5 cost seconds.
 - [ ] **Step 3: Follow `DEPLOY.md` literally.** Type only what it says. **Every deviation is a documentation bug — write it down, do not work around it.**
 - [ ] **Step 4: Run the smoke test there.**

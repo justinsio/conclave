@@ -14,7 +14,7 @@
 - `F:\ObsidianAI\conclave` — `environment` setting, `preflight.py`, lifespan wiring, tests, `.env.example`
 - `F:\ObsidianAI\conclave-dashboard` — `.streamlit/config.toml`, `api_client.py` guard, test, docs
 
-**Interpreter (both repos):** `C:/Users/white/AppData/Local/Programs/Python/Python312/python.exe -m pytest …` (default `python` is 3.14, lacks deps). conclave tests need the test Postgres (UP).
+**Interpreter (both repos):** `<python3.12> -m pytest …` (default `python` is 3.14, lacks deps). conclave tests need the test Postgres (UP).
 
 **Task order:** 1 → 2 (conclave) independent of 3 (dashboard); 4 verifies both. Do 1→2→3→4.
 
@@ -125,7 +125,7 @@ def test_production_soft_controls_warn_but_boot(caplog):
 
 - [ ] **Step 3: Run tests to verify they fail**
 
-Run: `cd /f/ObsidianAI/conclave && C:/Users/white/AppData/Local/Programs/Python/Python312/python.exe -m pytest tests/test_preflight.py -v`
+Run: `cd /f/ObsidianAI/conclave && <python3.12> -m pytest tests/test_preflight.py -v`
 Expected: FAIL — `ModuleNotFoundError: No module named 'app.services.preflight'`
 
 - [ ] **Step 4: Write the preflight module**
@@ -192,7 +192,7 @@ def assert_production_safety(settings) -> None:
 
 - [ ] **Step 5: Run tests to verify they pass**
 
-Run: `C:/Users/white/AppData/Local/Programs/Python/Python312/python.exe -m pytest tests/test_preflight.py -v`
+Run: `<python3.12> -m pytest tests/test_preflight.py -v`
 Expected: PASS (9 tests: dev no-op, all-set, 5 parametrized hard-misses, all-failures, soft-warn)
 
 - [ ] **Step 6: Commit**
@@ -246,7 +246,7 @@ async def test_lifespan_refuses_unsafe_production(monkeypatch):
 
 - [ ] **Step 2: Run it to verify it fails**
 
-Run: `C:/Users/white/AppData/Local/Programs/Python/Python312/python.exe -m pytest tests/test_preflight_wiring.py -v`
+Run: `<python3.12> -m pytest tests/test_preflight_wiring.py -v`
 Expected: FAIL — no RuntimeError raised (preflight not wired yet); the lifespan instead tries `init_pool()`.
 
 - [ ] **Step 3: Wire the preflight into `lifespan`**
@@ -269,7 +269,7 @@ async def lifespan(app: FastAPI):
 
 - [ ] **Step 4: Run the wiring test to verify it passes**
 
-Run: `C:/Users/white/AppData/Local/Programs/Python/Python312/python.exe -m pytest tests/test_preflight_wiring.py -v`
+Run: `<python3.12> -m pytest tests/test_preflight_wiring.py -v`
 Expected: PASS
 
 - [ ] **Step 5: Write the gate-ON enforcement gap-fill test**
@@ -300,7 +300,7 @@ async def test_gate_enabled_block_suppresses_post(client, clean_db, db_pool, sta
 
 - [ ] **Step 6: Run the enforcement test**
 
-Run: `C:/Users/white/AppData/Local/Programs/Python/Python312/python.exe -m pytest tests/test_moderation_integration.py tests/test_rate_limit_integration.py -v`
+Run: `<python3.12> -m pytest tests/test_moderation_integration.py tests/test_rate_limit_integration.py -v`
 Expected: PASS (existing + the new gate-ON test)
 
 - [ ] **Step 7: Update `.env.example`**
@@ -419,7 +419,7 @@ def test_remote_http_hostname_raises():
 
 - [ ] **Step 4: Run it to verify it fails**
 
-Run: `cd /f/ObsidianAI/conclave-dashboard && C:/Users/white/AppData/Local/Programs/Python/Python312/python.exe -m pytest tests/test_api_client.py -v`
+Run: `cd /f/ObsidianAI/conclave-dashboard && <python3.12> -m pytest tests/test_api_client.py -v`
 Expected: FAIL — `ImportError: cannot import name '_validate_api_base'`
 
 - [ ] **Step 5: Add the guard to `api_client.py`**
@@ -456,7 +456,7 @@ _validate_api_base(BASE_URL)
 
 - [ ] **Step 6: Run the test to verify it passes**
 
-Run: `C:/Users/white/AppData/Local/Programs/Python/Python312/python.exe -m pytest tests/test_api_client.py -v`
+Run: `<python3.12> -m pytest tests/test_api_client.py -v`
 Expected: PASS (4 tests). Import of `api_client` succeeds because the default `BASE_URL` is `http://localhost:8000` (allowed).
 
 - [ ] **Step 7: Docs — `.env.example` + README note**
@@ -506,17 +506,17 @@ EOF
 
 - [ ] **Step 1: Full conclave suite**
 
-Run: `cd /f/ObsidianAI/conclave && C:/Users/white/AppData/Local/Programs/Python/Python312/python.exe -m pytest -q`
+Run: `cd /f/ObsidianAI/conclave && <python3.12> -m pytest -q`
 Expected: PASS — 390 prior + new preflight/wiring/gate-ON tests, zero failures.
 
 - [ ] **Step 2: Dashboard tests**
 
-Run: `cd /f/ObsidianAI/conclave-dashboard && C:/Users/white/AppData/Local/Programs/Python/Python312/python.exe -m pytest -q`
+Run: `cd /f/ObsidianAI/conclave-dashboard && <python3.12> -m pytest -q`
 Expected: PASS (4 api_client tests).
 
 - [ ] **Step 3: Smoke-check the guard actually fires**
 
-Run: `cd /f/ObsidianAI/conclave-dashboard && CONCLAVE_API_URL=http://10.0.0.5:8000 C:/Users/white/AppData/Local/Programs/Python/Python312/python.exe -c "import api_client"`
+Run: `cd /f/ObsidianAI/conclave-dashboard && CONCLAVE_API_URL=http://10.0.0.5:8000 <python3.12> -c "import api_client"`
 Expected: a `RuntimeError` about cleartext to a non-local host (proves the module-level guard fires).
 
 - [ ] **Step 4: Update the scorecard + path-to-go** (Edit tool — vault rule)

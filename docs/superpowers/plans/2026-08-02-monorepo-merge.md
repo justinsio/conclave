@@ -734,7 +734,7 @@ Expected: `clean — …`. The subtrees brought their own `.gitignore` files, bu
 Push **the branch**, not `master`. Must source the shared ssh-agent in the same shell — a fresh shell has no `SSH_AUTH_SOCK`:
 
 ```bash
-. /c/Users/white/.ssh/agent.env && git -C /f/ObsidianAI/conclave push -u origin feat/monorepo-merge
+. <home>/.ssh/agent.env && git -C /f/ObsidianAI/conclave push -u origin feat/monorepo-merge
 ```
 
 Expected: the push succeeds and the branch is tracked. If it reports `Permission denied (publickey)`, the agent has no key loaded — Justin must run `ssh-add ~/.ssh/id_ed25519` **in Git Bash**.

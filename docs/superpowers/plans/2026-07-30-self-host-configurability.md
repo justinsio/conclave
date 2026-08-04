@@ -25,7 +25,7 @@ cd /f/ObsidianAI/conclave && PYTHONPATH=. .venv/Scripts/python.exe -m pytest
 **conclave-seeds** — run tests with:
 
 ```bash
-cd /f/ObsidianAI/conclave-seeds && C:/Users/white/AppData/Local/Programs/Python/Python312/python.exe -m pytest
+cd /f/ObsidianAI/conclave-seeds && <python3.12> -m pytest
 ```
 
 **Baseline before starting:** conclave **434 passed**, conclave-seeds **59 passed**. Record the real numbers you observe — if they differ from these, stop and report rather than proceeding.
@@ -1618,7 +1618,7 @@ COORDINATOR_FALLBACK_INTERVAL=60
 - [ ] **Step 2: Verify no secret-shaped values remain**
 
 ```bash
-cd /f/ObsidianAI/conclave && grep -nE "sk-|[0-9]{8,}:AA|192\.168\.|tuckerj699" .env.example
+grep -nE "sk-|[0-9]{8,}:AA|192\.168\.|<your-username>" .env.example
 ```
 
 Expected: no output.
@@ -1711,7 +1711,7 @@ Expected: no output.
 - [ ] **Step 6: Run the suite (expected to fail on config, not imports)**
 
 ```bash
-cd /f/ObsidianAI/conclave-seeds && C:/Users/white/AppData/Local/Programs/Python/Python312/python.exe -m pytest
+cd /f/ObsidianAI/conclave-seeds && <python3.12> -m pytest
 ```
 
 Expected: failures referencing `cfg.llm_api_key` / `llm_base_url` / `llm_model` — those land in Task 10. **No `ImportError` or `ModuleNotFoundError` should appear.** If one does, a reference was missed.
@@ -1809,7 +1809,7 @@ def test_missing_required_conclave_vars_still_raise():
 - [ ] **Step 2: Run it to verify it fails**
 
 ```bash
-cd /f/ObsidianAI/conclave-seeds && C:/Users/white/AppData/Local/Programs/Python/Python312/python.exe -m pytest tests/test_config.py -v
+cd /f/ObsidianAI/conclave-seeds && <python3.12> -m pytest tests/test_config.py -v
 ```
 
 Expected: FAIL — `KeyError: 'DEEPSEEK_API_KEY'` on most tests.
@@ -1900,7 +1900,7 @@ def load_config(env: dict | None = None) -> SeedConfig:
 - [ ] **Step 4: Run it to verify it passes**
 
 ```bash
-cd /f/ObsidianAI/conclave-seeds && C:/Users/white/AppData/Local/Programs/Python/Python312/python.exe -m pytest tests/test_config.py -v
+cd /f/ObsidianAI/conclave-seeds && <python3.12> -m pytest tests/test_config.py -v
 ```
 
 Expected: PASS.
@@ -1919,7 +1919,7 @@ Verified 2026-07-30, expect exactly two files:
 - [ ] **Step 6: Run the full suite**
 
 ```bash
-cd /f/ObsidianAI/conclave-seeds && C:/Users/white/AppData/Local/Programs/Python/Python312/python.exe -m pytest
+cd /f/ObsidianAI/conclave-seeds && <python3.12> -m pytest
 ```
 
 Expected: PASS. Report the count against the 59 baseline.
@@ -2096,7 +2096,7 @@ cd /f/ObsidianAI/conclave && PYTHONPATH=. .venv/Scripts/python.exe -m pytest
 Expected: PASS. Record the final count.
 
 ```bash
-cd /f/ObsidianAI/conclave-seeds && C:/Users/white/AppData/Local/Programs/Python/Python312/python.exe -m pytest
+cd /f/ObsidianAI/conclave-seeds && <python3.12> -m pytest
 ```
 
 Expected: PASS. Record the final count.

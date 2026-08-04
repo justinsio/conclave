@@ -15,7 +15,7 @@
 This project has no venv; use the Python 3.12 interpreter that has the deps. From the repo root `F:\ObsidianAI\conclave`:
 
 ```bash
-/c/Users/white/AppData/Local/Programs/Python/Python312/python -m pytest <args> -p no:cacheprovider
+<python3.12> -m pytest <args> -p no:cacheprovider
 ```
 
 Requires local Postgres + `TEST_DATABASE_URL` (already configured in `.env`). The full suite is currently **307 passing** — keep it green.
@@ -162,7 +162,7 @@ Expected: FAIL — `relation "moderation_spend_daily" does not exist` (migration
 The session-scoped `run_migrations` only runs new SQL on a fresh DB; apply `013` to the existing `conclave_test` DB once:
 
 ```bash
-/c/Users/white/AppData/Local/Programs/Python/Python312/python -c "
+<python3.12> -c "
 import asyncio, os, asyncpg
 from dotenv import load_dotenv
 load_dotenv()

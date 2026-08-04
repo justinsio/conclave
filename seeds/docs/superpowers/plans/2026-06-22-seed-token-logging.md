@@ -10,7 +10,7 @@
 
 **Test command (run from repo root `F:/ObsidianAI/conclave-seeds`):**
 ```bash
-C:/Users/white/AppData/Local/Programs/Python/Python312/python.exe -m pytest
+<python3.12> -m pytest
 ```
 
 ---
@@ -126,7 +126,7 @@ async def test_deepseek_missing_usage_defaults_zero():
 
 - [ ] **Step 2: Run the provider tests to verify they fail**
 
-Run: `C:/Users/white/AppData/Local/Programs/Python/Python312/python.exe -m pytest tests/test_providers_base.py tests/test_providers_ollama.py tests/test_providers_deepseek.py -q`
+Run: `<python3.12> -m pytest tests/test_providers_base.py tests/test_providers_ollama.py tests/test_providers_deepseek.py -q`
 Expected: FAIL — `ImportError: cannot import name 'Completion'`.
 
 - [ ] **Step 3: Add `Completion` + update `FakeProvider` in `providers/base.py`**
@@ -261,7 +261,7 @@ In `brain.py`, change the `answer` method body only (signature unchanged this ta
 
 - [ ] **Step 7: Run the full suite to verify green**
 
-Run: `C:/Users/white/AppData/Local/Programs/Python/Python312/python.exe -m pytest -q`
+Run: `<python3.12> -m pytest -q`
 Expected: all pass (provider tests updated; `test_brain.py` still passes because `brain` uses `completion.text` and `token_count` still comes from `estimate_tokens`).
 
 - [ ] **Step 8: Commit**
@@ -299,7 +299,7 @@ def test_log_llm_usage_emits_json_line(capsys):
 
 - [ ] **Step 2: Run it to verify it fails**
 
-Run: `C:/Users/white/AppData/Local/Programs/Python/Python312/python.exe -m pytest tests/test_observability.py -q`
+Run: `<python3.12> -m pytest tests/test_observability.py -q`
 Expected: FAIL — `ImportError: cannot import name 'log_llm_usage'`.
 
 - [ ] **Step 3: Add `log_llm_usage` to `observability.py`**
@@ -323,7 +323,7 @@ def log_llm_usage(purpose: str, model: str, prompt_tokens: int, completion_token
 
 - [ ] **Step 4: Run the observability test to verify it passes**
 
-Run: `C:/Users/white/AppData/Local/Programs/Python/Python312/python.exe -m pytest tests/test_observability.py -q`
+Run: `<python3.12> -m pytest tests/test_observability.py -q`
 Expected: PASS.
 
 - [ ] **Step 5: Write the failing brain tests**
@@ -370,7 +370,7 @@ async def test_brain_logs_usage_with_purpose(caplog):
 
 - [ ] **Step 6: Run brain tests to verify they fail**
 
-Run: `C:/Users/white/AppData/Local/Programs/Python/Python312/python.exe -m pytest tests/test_brain.py -q`
+Run: `<python3.12> -m pytest tests/test_brain.py -q`
 Expected: FAIL — `answer()` got an unexpected keyword `purpose` (and `token_count` mismatch).
 
 - [ ] **Step 7: Update `brain.py` — purpose, real token_count, usage log**
@@ -403,7 +403,7 @@ In `discussion.py`, line 25 — change:
 
 - [ ] **Step 9: Run the full suite to verify green**
 
-Run: `C:/Users/white/AppData/Local/Programs/Python/Python312/python.exe -m pytest -q`
+Run: `<python3.12> -m pytest -q`
 Expected: all pass.
 
 - [ ] **Step 10: Commit**
@@ -464,7 +464,7 @@ def test_parse_lines_tolerates_log_prefix_and_junk():
 
 - [ ] **Step 2: Run it to verify it fails**
 
-Run: `C:/Users/white/AppData/Local/Programs/Python/Python312/python.exe -m pytest tests/test_aggregate_usage.py -q`
+Run: `<python3.12> -m pytest tests/test_aggregate_usage.py -q`
 Expected: FAIL — `ModuleNotFoundError: No module named 'scripts'`.
 
 - [ ] **Step 3: Create the package marker**
@@ -546,7 +546,7 @@ if __name__ == "__main__":
 
 - [ ] **Step 5: Run the full suite to verify green**
 
-Run: `C:/Users/white/AppData/Local/Programs/Python/Python312/python.exe -m pytest -q`
+Run: `<python3.12> -m pytest -q`
 Expected: all pass (original 38 + the new/updated tests).
 
 - [ ] **Step 6: Commit**
