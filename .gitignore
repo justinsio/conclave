@@ -9,7 +9,14 @@
 # NOTE: SECURITY.md is deliberately NOT ignored — that path is reserved for the
 # public vulnerability-reporting policy. The internal audit ledger lives in
 # docs/internal/ instead.
+#
+# AUDIT-*.md covers the class, not one filename: any review tool pointed at this
+# repo writes its findings somewhere, and an unreviewed findings file in a repo
+# that is about to go public is the worst possible thing to commit by accident.
+# Phase 0 found exactly this — a REVIEW.md protected by nothing, one `git add -A`
+# from publishing a list of open criticals.
 REVIEW.md
+AUDIT-*.md
 docs/internal/
 
 # Python
