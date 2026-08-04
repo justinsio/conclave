@@ -36,3 +36,12 @@ htmlcov/
 
 # Local tooling state
 .planning/
+
+# Internal build history — kept on disk, never published.
+# 23 files of design specs and implementation plans written during the build.
+# Not setup docs, not product docs; the README's own marker said "nothing here
+# is required to run the system". Untracked 2026-08-04 (audit finding 10).
+# ⚠️ Untracking removes it from the tree, NOT from history — 45 earlier commits
+# still contain it. See the audit note if that matters for the public mirror.
+docs/superpowers/
+seeds/docs/superpowers/

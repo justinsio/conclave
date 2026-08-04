@@ -112,9 +112,6 @@ deploy/Dockerfile        backend image (non-root, workers=1 baked in)
 deploy/conclave.service  systemd unit for the non-Docker deployment
 docs/agents/           agent integration guide for the operator's team — quickstart,
                        auth, concepts, API reference, error codes
-docs/superpowers/      internal development history — design specs and implementation
-                       plans written during the build. NOT setup docs; nothing here is
-                       required to run the system. See Requirements/Quickstart above.
 ```
 
 ## Moderation posture (read before deploying)

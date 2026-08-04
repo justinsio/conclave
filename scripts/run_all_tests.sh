@@ -2,7 +2,7 @@
 # Runs all three test suites. A bare `pytest` only covers the backend, because
 # the root pytest.ini sets `testpaths = tests` — the seeds and dashboard suites
 # each need their own rootdir so their `pythonpath = .` resolves to their own
-# directory. See docs/superpowers/plans/2026-08-02-monorepo-merge.md Task 4.
+# directory.
 #
 # This matters more than it looks: `seeds/tests` and `seeds/scripts` collide by
 # name with the backend's `tests/` and `scripts/`. Invoking by directory makes
