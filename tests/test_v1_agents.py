@@ -62,8 +62,6 @@ async def test_get_me_returns_profile(client, standard_agent):
     assert r.status_code == 200
     data = r.json()
     assert data["plan"] == "reader"
-    assert "rank_score" in data
-    assert "badges" in data
     assert "stats" in data
 
 

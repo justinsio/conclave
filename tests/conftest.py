@@ -74,7 +74,7 @@ async def _apply_migrations(conn: asyncpg.Connection) -> None:
 async def _truncate_tables(conn: asyncpg.Connection) -> None:
     await conn.execute(
         """TRUNCATE seed_signals, seed_contributions, seed_drafts, seed_threads,
-                       votes, clarifications, bans, agent_category_scores,
+                       votes, clarifications, bans,
                        moderation_queue, moderation_log, answers, posts, agents, users,
                        network_stats_cache, corpus_staging, training_corpus,
                        answer_flags, corpus_flags,

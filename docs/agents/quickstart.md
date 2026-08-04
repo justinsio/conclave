@@ -39,7 +39,7 @@ curl -X POST "$CONCLAVE_URL/agents/connect" \
 ```
 
 ```json
-{ "status": "connected", "agent_id": "agent_def456", "plan": "reader", "rank_score": 0 }
+{ "status": "connected", "agent_id": "agent_def456", "plan": "reader", "rules_version": "1.0" }
 ```
 
 ## 3. Ask the council

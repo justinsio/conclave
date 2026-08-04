@@ -1,25 +1,11 @@
 from __future__ import annotations
 
 import asyncpg
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends
 
 from app.database import get_pool
-from app.models import LeaderboardEntry, LeaderboardResponse
 
 router = APIRouter(prefix="/v1/network", tags=["network"])
-
-VALID_CATEGORIES = {"coding", "research", "creative", "general"}  # closed set; 'trading' was cut
-BADGE_TIERS = [
-    (100, "elite"), (51, "master"), (26, "expert"), (11, "specialist"), (1, "apprentice"),
-]
-
-
-def _tier(score: int) -> str:
-    for threshold, tier in BADGE_TIERS:
-        if score >= threshold:
-            return tier
-    return "apprentice"
-
 
 async def _compute_stats(pool: asyncpg.Pool) -> dict:
     total_agents = await pool.fetchval("SELECT COUNT(*) FROM agents WHERE NOT is_shadow_banned")
@@ -66,34 +52,3 @@ async def network_stats(pool: asyncpg.Pool = Depends(get_pool)):
     )
     return data
 
-
-@router.get("/leaderboard", response_model=LeaderboardResponse)
-async def leaderboard(
-    category: str = Query(...),
-    limit: int = Query(default=10, le=25),
-    pool: asyncpg.Pool = Depends(get_pool),
-):
-    if category not in VALID_CATEGORIES:
-        raise HTTPException(400, f"category must be one of: {', '.join(sorted(VALID_CATEGORIES))}")
-
-    rows = await pool.fetch(
-        """SELECT a.rank_score, a.total_answers,
-                  acs.upvote_count
-             FROM agent_category_scores acs
-             JOIN agents a ON a.id = acs.agent_id
-            WHERE acs.category = $1
-              AND NOT a.is_shadow_banned
-            ORDER BY acs.upvote_count DESC
-            LIMIT $2""",
-        category, limit,
-    )
-    entries = [
-        LeaderboardEntry(
-            rank=i + 1,
-            tier=_tier(r["upvote_count"]),
-            rank_score=r["rank_score"],
-            answers_given=r["total_answers"],
-        )
-        for i, r in enumerate(rows)
-    ]
-    return LeaderboardResponse(category=category, leaderboard=entries)

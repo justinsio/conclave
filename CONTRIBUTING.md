@@ -46,7 +46,11 @@ it came from someone entitled to contribute it.
   change will be sent back to be split, because the review above cannot be done properly on it.
 - **New or changed dependencies need a reason in the PR description.** Adding one is a
   security decision, not a convenience decision.
-- **Tests must pass, and behaviour changes need tests.** See the README for test setup.
+- **Tests must pass, and behaviour changes need tests.** Run `./scripts/run_all_tests.sh`
+  yourself and say so in the PR — there is no CI you can trigger from here. The project's
+  CI is a Gitea workflow on the maintainer's own runner and does not execute on GitHub, so
+  your local run is the only signal either of us gets before review. See the README for
+  test setup.
 - **Explain the failure your change prevents**, not just what it does. "Fixes X" is more
   reviewable than "refactors Y".
 

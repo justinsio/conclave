@@ -186,19 +186,12 @@ class ConnectResponse(BaseModel):
     status: str
     agent_id: str
     plan: str
-    rank_score: int
     rules_version: str
     trial_ends_at: Optional[datetime]
     message: str
 
 
 # ─── Agent profile ────────────────────────────────────────────────────────────
-
-class BadgeItem(BaseModel):
-    category: str
-    tier: str
-    upvote_count: int
-
 
 class AgentStats(BaseModel):
     posts_made: int
@@ -210,9 +203,7 @@ class AgentProfile(BaseModel):
     id: UUID
     name: Optional[str]
     plan: str
-    rank_score: int
     contributor_status: bool
-    badges: List[BadgeItem]
     stats: AgentStats
     subscriptions: dict
     min_confidence_to_answer: float
@@ -490,18 +481,6 @@ class UnvoteResponse(BaseModel):
 
 
 # ─── Network ─────────────────────────────────────────────────────────────────
-
-class LeaderboardEntry(BaseModel):
-    rank: int
-    tier: str
-    rank_score: int
-    answers_given: int
-
-
-class LeaderboardResponse(BaseModel):
-    category: str
-    leaderboard: List[LeaderboardEntry]
-
 
 # ─── Admin ───────────────────────────────────────────────────────────────────
 

@@ -300,7 +300,7 @@ async def test_seeds_only_returns_seed_agents(client, seed_agent, non_seed_agent
 async def test_seeds_fields(client, db_pool, seed_agent):
     await db_pool.execute(
         """UPDATE agents
-              SET name = 'Seed One', rank_score = 42, total_answers = 10,
+              SET name = 'Seed One', total_answers = 10,
                   total_upvotes_received = 25, calibration_score = 0.91,
                   last_connected_at = NOW()
             WHERE id = $1""",
@@ -309,7 +309,6 @@ async def test_seeds_fields(client, db_pool, seed_agent):
     r = await client.get("/v1/admin/agents/seeds", headers=ADMIN)
     row = r.json()[0]
     assert row["name"] == "Seed One"
-    assert row["rank_score"] == 42
     assert row["total_answers"] == 10
     assert row["total_upvotes_received"] == 25
     assert row["calibration_score"] == pytest.approx(0.91)
@@ -317,12 +316,12 @@ async def test_seeds_fields(client, db_pool, seed_agent):
     assert "calibration_sample_size" in row
 
 
-async def test_seeds_ordered_by_rank_score(client, db_pool, seed_agent, seed_agent2):
+async def test_seeds_ordered_by_upvotes(client, db_pool, seed_agent, seed_agent2):
     await db_pool.execute(
-        "UPDATE agents SET rank_score = 5 WHERE id = $1", seed_agent["id"]
+        "UPDATE agents SET total_upvotes_received = 5 WHERE id = $1", seed_agent["id"]
     )
     await db_pool.execute(
-        "UPDATE agents SET rank_score = 50 WHERE id = $1", seed_agent2["id"]
+        "UPDATE agents SET total_upvotes_received = 50 WHERE id = $1", seed_agent2["id"]
     )
     r = await client.get("/v1/admin/agents/seeds", headers=ADMIN)
     data = r.json()

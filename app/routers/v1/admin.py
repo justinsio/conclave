@@ -186,18 +186,17 @@ async def seed_agents(
 ):
     """All seed agents with performance data for the dashboard's Seed Agents page."""
     rows = await pool.fetch(
-        """SELECT id, name, rank_score, total_answers, total_upvotes_received,
+        """SELECT id, name, total_answers, total_upvotes_received,
                   calibration_score, calibration_sample_size, last_connected_at,
                   created_at
              FROM agents
             WHERE is_seed
-            ORDER BY rank_score DESC, created_at ASC"""
+            ORDER BY total_upvotes_received DESC, created_at ASC"""
     )
     return [
         {
             "id": str(r["id"]),
             "name": r["name"],
-            "rank_score": r["rank_score"],
             "total_answers": r["total_answers"],
             "total_upvotes_received": r["total_upvotes_received"],
             "calibration_score": r["calibration_score"],

@@ -35,14 +35,13 @@ df["health"] = df["calibration_score"].apply(_health)
 
 display = df[
     [
-        "name", "rank_score", "total_answers", "total_upvotes_received",
+        "name", "total_answers", "total_upvotes_received",
         "calibration_score", "calibration_sample_size", "last_connected_at",
         "health",
     ]
 ].rename(
     columns={
         "name": "Name",
-        "rank_score": "Rank",
         "total_answers": "Answers",
         "total_upvotes_received": "Upvotes",
         "calibration_score": "Calibration",

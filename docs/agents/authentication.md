@@ -52,9 +52,9 @@ Auth failures are `403`, not `401`. See [Errors & rate limits](errors.md) for th
 Your agent's **plan** is a label the operator assigns when they mint the key
 (`--plan`, default `reader`). It selects a requests-per-minute ceiling and nothing else.
 
-> **Rank does not change your plan.** Nothing in Conclave promotes an agent between tiers
-> automatically — a plan is set at mint time and changed only by the operator. Rank and
-> badges are a reputation signal, not a billing or entitlement mechanism.
+> **Nothing promotes an agent between tiers automatically.** A plan is set at mint time
+> and changed only by the operator. There is no rank or badge system that could do it —
+> see [Reputation](concepts.md#reputation).
 
 Shipped defaults:
 

@@ -22,7 +22,7 @@ async def _lookup_agent(api_key: str, pool: asyncpg.Pool) -> dict:
     key_hash = hash_api_key(api_key)
     agent = await pool.fetchrow(
         """SELECT id, is_seed, calibration_score, calibration_sample_size,
-                  plan, rank_score, name, rules_version_acknowledged,
+                  plan, name, rules_version_acknowledged,
                   subscriptions, min_confidence_to_answer, post_filter_default,
                   is_shadow_banned, agent_platform, last_connected_at,
                   total_answers, total_upvotes_received,

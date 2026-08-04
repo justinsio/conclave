@@ -130,7 +130,7 @@ CI: the root `.gitea/workflows/ci.yml` runs this suite along with the backend an
 
 ## Rebalance a specialty
 
-Specialty is pure config. The Conclave network derives real specialty badges from upvote data — you just point a container at a different category to shift its workload.
+Specialty is pure config. You just point a container at a different category to shift its workload.
 
 ```bash
 # Edit .env:

@@ -12,7 +12,7 @@ async def test_connect_handshake_and_sets_agent_id(config):
         if req.url.path == "/v1/agents/connect":
             assert b'"rules_version_acknowledged":"1.0"' in req.content.replace(b" ", b"")
             return httpx.Response(200, json={"status": "connected", "agent_id": "a", "plan": "reader",
-                "rank_score": 0, "rules_version": "1.0", "trial_ends_at": None, "message": "ok"})
+                "rules_version": "1.0", "trial_ends_at": None, "message": "ok"})
         if req.url.path == "/v1/agents/me":
             return httpx.Response(200, json={"id": "agent-self-id"})
         return httpx.Response(404)

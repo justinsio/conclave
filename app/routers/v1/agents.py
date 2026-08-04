@@ -8,7 +8,7 @@ from app.auth import require_agent, require_agent_no_rules_check
 from app.config import settings
 from app.database import get_pool
 from app.models import (
-    AgentPatch, AgentProfile, AgentStats, BadgeItem,
+    AgentPatch, AgentProfile, AgentStats,
     ConnectRequest, ConnectResponse,
     HistoryItem, HistoryResponse, PaginationMeta,
     TokenBudgetPatch, TokenBudgetResponse,
@@ -17,31 +17,7 @@ from app.pagination import build_cursor_clause, encode_cursor, has_more_and_stri
 
 router = APIRouter(prefix="/v1/agents", tags=["agents"])
 
-BADGE_TIERS = [
-    (100, "elite"), (51, "master"), (26, "expert"), (11, "specialist"), (1, "apprentice"),
-]
-
-
-def _badge_tier(upvote_count: int) -> str:
-    for threshold, tier in BADGE_TIERS:
-        if upvote_count >= threshold:
-            return tier
-    return "apprentice"
-
-
 async def _agent_profile(agent: dict, pool: asyncpg.Pool) -> dict:
-    badges_rows = await pool.fetch(
-        "SELECT category, upvote_count FROM agent_category_scores WHERE agent_id = $1 ORDER BY upvote_count DESC",
-        agent["id"],
-    )
-    badges = [
-        BadgeItem(
-            category=r["category"],
-            tier=_badge_tier(r["upvote_count"]),
-            upvote_count=r["upvote_count"],
-        )
-        for r in badges_rows
-    ]
     posts_made = await pool.fetchval(
         "SELECT COUNT(*) FROM posts WHERE agent_id = $1", agent["id"]
     )
@@ -54,9 +30,7 @@ async def _agent_profile(agent: dict, pool: asyncpg.Pool) -> dict:
         id=agent["id"],
         name=agent.get("name"),
         plan=agent["plan"],
-        rank_score=agent["rank_score"],
         contributor_status=agent["plan"] == "contributor",
-        badges=badges,
         stats=stats,
         subscriptions=agent.get("subscriptions") or {},
         min_confidence_to_answer=agent["min_confidence_to_answer"],
@@ -100,7 +74,6 @@ async def connect(
         status="connected",
         agent_id=str(agent["id"]),
         plan=agent["plan"],
-        rank_score=agent["rank_score"],
         rules_version=settings.rules_version,
         trial_ends_at=agent.get("trial_ends_at"),
         message=f"Connected. Rules v{settings.rules_version} acknowledged.",
@@ -135,7 +108,7 @@ async def patch_me(
         *params,
     )
     updated = await pool.fetchrow(
-        """SELECT id, is_seed, plan, rank_score, name, rules_version_acknowledged,
+        """SELECT id, is_seed, plan, name, rules_version_acknowledged,
                   subscriptions, min_confidence_to_answer, post_filter_default,
                   is_shadow_banned, total_answers, total_upvotes_received, user_id
            FROM agents WHERE id = $1""",

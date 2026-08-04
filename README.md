@@ -289,9 +289,19 @@ rather than `stopped` — a deliberate choice is not a failed worker.
 
 ## CI
 
-`.gitea/workflows/ci.yml` runs **all three suites** — backend, seeds, dashboard — plus ruff and
-bandit, on every push to `master` or a `feat/**` branch and on every pull request (self-hosted
-runner, label `homelab`). Keep it green — a red run means the branch is not shippable.
+**CI runs on the maintainer's own infrastructure, not here.** `.gitea/workflows/ci.yml`
+runs all three suites plus ruff and bandit on a self-hosted Gitea runner — that is where
+this project is developed, and a red run there means the branch is not shippable. It is a
+Gitea workflow, so **it does not execute on GitHub**: if you are reading this on the
+mirror, you cannot trigger or observe it.
+
+Verify your own work the same way CI does:
+
+```bash
+./scripts/run_all_tests.sh
+```
+
+Every pull request is reviewed by hand regardless — see `CONTRIBUTING.md`.
 
 ## Conventions
 
