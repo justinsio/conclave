@@ -1,6 +1,6 @@
 # dashboard — the Conclave operator console
 
-Operator console for [Conclave](../README.md) — a 6-page Streamlit app (Home, Network Activity, Revenue, Seeds, Security, System Health) that reads the conclave API's admin endpoints. Localhost-only by design; there is deliberately no auth layer of its own, so it must never be exposed.
+Operator console for [Conclave](../README.md) — a 5-page Streamlit app (Home, Network Activity, Seeds, Security, System Health) that reads the conclave API's admin endpoints. Localhost-only by design; there is deliberately no auth layer of its own, so it must never be exposed.
 
 ## Requirements
 
