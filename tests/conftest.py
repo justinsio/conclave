@@ -91,7 +91,6 @@ async def _truncate_tables(conn: asyncpg.Connection) -> None:
         """UPDATE circuit_breaker_state
            SET mode = 'normal', track_a_paused = FALSE, paused_at = NULL,
                mode_entered_at = NOW(), threat_signal_index = NULL, last_checked_at = NULL,
-               trial_posting_blocked = FALSE,
                daily_cost_cap_override_usd = NULL, cost_breaker_alerted_day = NULL
            WHERE id = 1"""
     )
@@ -122,9 +121,6 @@ async def db_pool():
 async def clean_db(db_pool):
     async with db_pool.acquire() as conn:
         await _truncate_tables(conn)
-    # Reset in-memory flag so tests that mutate settings don't bleed into each other
-    from app.config import settings as _settings
-    _settings.trial_block_posting = False
     await init_pool(TEST_DB_URL)
     yield
     await close_pool()

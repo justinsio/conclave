@@ -117,13 +117,3 @@ def reset_circuit_breaker_track_a(source: str) -> dict:
     return _post("/internal/security/circuit-breaker/reset-track-a", {"source": source})
 
 
-def get_platform_flags() -> dict:
-    return _get("/internal/admin/flags")
-
-
-def block_trial_posting() -> dict:
-    return _post("/internal/admin/flags/trial-block")
-
-
-def unblock_trial_posting() -> dict:
-    return _delete("/internal/admin/flags/trial-block")

@@ -16,7 +16,6 @@ from app.routers.internal.corpus import router as corpus_router
 from app.routers.internal.admin_metrics import router as admin_metrics_router
 from app.routers.internal.admin_corpus import router as admin_corpus_router
 from app.routers.internal.admin_flag_events import router as admin_flag_events_router
-from app.routers.internal.admin_flags import router as admin_flags_router
 from app.routers.internal.admin_cost import router as admin_cost_router
 from app.routers.internal.admin_agents import router as admin_agents_router
 from app.routers.v1.rules import router as rules_router
@@ -68,13 +67,6 @@ async def lifespan(app: FastAPI):
     parse_rate_limit_tiers(settings.rate_limit_tiers)
     parse_ttl_overrides(settings.post_expiry_ttl_overrides)
     pool = await init_pool()
-
-    # Sync runtime flags from DB so restarts honour any flags set while the app was running
-    row = await pool.fetchrow(
-        "SELECT trial_posting_blocked FROM circuit_breaker_state WHERE id = 1"
-    )
-    if row and row["trial_posting_blocked"]:
-        settings.trial_block_posting = True
 
     await start_blind_phase_worker(pool, interval=settings.blind_phase_check_interval)
     await start_coordinator_worker(pool, interval=settings.coordinator_fallback_interval)
@@ -150,7 +142,6 @@ app.include_router(threads_router)
 app.include_router(security_router)
 app.include_router(corpus_router)
 app.include_router(admin_metrics_router)
-app.include_router(admin_flags_router)
 app.include_router(admin_corpus_router)
 app.include_router(admin_flag_events_router)
 app.include_router(admin_cost_router)

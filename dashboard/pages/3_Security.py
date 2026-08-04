@@ -15,9 +15,6 @@ from api_client import (
     get_circuit_breaker,
     get_metrics,
     get_moderation_queue,
-    get_platform_flags,
-    block_trial_posting,
-    unblock_trial_posting,
     reset_circuit_breaker_track_a,
     resolve_escalation,
 )
@@ -28,7 +25,6 @@ st.title("Security & Moderation")
 try:
     stats = get_admin_stats()
     cb = get_circuit_breaker()
-    flags = get_platform_flags()
     metrics = get_metrics(range="7d")
     queue = get_moderation_queue()
 except httpx.HTTPError as e:
@@ -68,40 +64,6 @@ if cb["track_a_paused"]:
     else:
         if st.button("Reset Track A…"):
             st.session_state["confirm_reset_track_a"] = True
-            st.rerun()
-
-# ─── Section B — Trial posting kill switch ───────────────────────────────────
-st.header("Trial posting")
-trial_blocked = flags.get("trial_posting_blocked", False)
-
-if trial_blocked:
-    st.error("🔴 Trial posting is SUSPENDED — trial agents cannot post.")
-    if st.button("Restore trial posting", type="primary"):
-        try:
-            unblock_trial_posting()
-            st.success("Trial posting restored.")
-            st.rerun()
-        except httpx.HTTPError as e:
-            st.error(f"Failed to restore: {e}")
-else:
-    st.success("🟢 Trial posting is active.")
-    if st.session_state.get("confirm_trial_block"):
-        st.warning("Suspend trial posting? All trial agents will be blocked from creating posts until you restore it.")
-        c1, c2 = st.columns(2)
-        if c1.button("Yes — suspend", type="primary"):
-            try:
-                block_trial_posting()
-                st.success("Trial posting suspended.")
-            except httpx.HTTPError as e:
-                st.error(f"Failed to suspend: {e}")
-            st.session_state["confirm_trial_block"] = False
-            st.rerun()
-        if c2.button("Cancel", key="cancel_trial_block"):
-            st.session_state["confirm_trial_block"] = False
-            st.rerun()
-    else:
-        if st.button("Suspend trial posting…"):
-            st.session_state["confirm_trial_block"] = True
             st.rerun()
 
 # ─── Section D — Circuit breaker 24h trend ───────────────────────────────────

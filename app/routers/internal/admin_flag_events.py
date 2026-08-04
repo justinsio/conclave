@@ -1,7 +1,7 @@
 """Operator visibility into flagging activity.
 
 NOT /internal/admin/flags — that prefix is taken by the platform kill-switch in
-admin_flags.py (GET "" returns trial_posting_blocked) and the operator dashboard
+the operator dashboard
 consumes it at three call sites. Two routers on the same prefix would leave one
 unreachable or break the dashboard, depending on registration order.
 
