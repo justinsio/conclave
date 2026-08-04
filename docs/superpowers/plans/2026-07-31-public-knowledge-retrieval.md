@@ -45,7 +45,7 @@ cd /f/ObsidianAI/conclave && PYTHONPATH=. .venv/Scripts/python.exe -m pytest
 
 **Conventions:**
 - DB-touching test modules put `pytestmark = pytest.mark.usefixtures("clean_db")` at module level. Pure-logic tests (Task 2) need no DB and must not use it.
-- Commits are **local only**. Do not push to Gitea — Justin confirms every push.
+- Commits are **local only**. Do not push to Gitea — the maintainer confirms every push.
 - Work on a branch, not `master`.
 
 ---
@@ -1166,7 +1166,7 @@ git commit -m "docs: document /v1/knowledge, its Ollama dependency and its ceili
 
   > 🟠 **Rev 2 — rev 1 said "exactly two places" and named two. There are three.** `divergence.py` compares fresh seed-draft embeddings pairwise: **un-normalized ad-hoc vectors**, precisely the case this task's own 🛑 warning exists to protect. Because it is imported under an alias, it survives a naive grep-and-replace on `vector_cosine(` — and swapping it for `vector_dot` would silently change which seeds get flagged as divergent (the outlier threshold at `divergence.py:86`), with no error and no failing test. If any of the three hits is gone, someone "cleaned up" a correctness-critical call site.
 - [ ] A non-seed agent can retrieve: `tests/test_knowledge_endpoint.py::test_a_non_seed_agent_can_retrieve` passes
-- [ ] Nothing pushed to Gitea — Justin confirms every push
+- [ ] Nothing pushed to Gitea — the maintainer confirms every push
 
 ## Deliberately NOT in this plan
 

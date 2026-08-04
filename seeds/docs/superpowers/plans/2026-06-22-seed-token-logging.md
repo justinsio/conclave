@@ -561,7 +561,7 @@ git commit -m "feat: usage aggregator for A2 cost numbers"
 
 - **Wiring the aggregator into the harness's cost report** — for now it's a standalone operator step (`docker logs <seed> | python scripts/aggregate_usage.py`). The harness already captures real per-answer `token_count` via the API thanks to the bonus.
 - **Confirming live DeepSeek input/output rates** before a real cost run (defaults in the CLI are placeholders).
-- **Pushing to Gitea** — confirm with Justin per the push rule.
+- **Pushing to Gitea** — confirm with the maintainer per the push rule.
 
 ## Self-review notes
 

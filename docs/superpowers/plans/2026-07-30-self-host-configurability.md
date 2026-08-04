@@ -32,7 +32,7 @@ cd /f/ObsidianAI/conclave-seeds && <python3.12> -m pytest
 
 **Conventions:**
 - DB-touching test modules put `pytestmark = pytest.mark.usefixtures("clean_db")` at module level. Pure-logic tests (Tasks 3, 5, 6) need no DB and must not use it.
-- Commits are **local only**. Do not push to Gitea — Justin confirms every push.
+- Commits are **local only**. Do not push to Gitea — the maintainer confirms every push.
 - Work on a branch, not `master`.
 
 ---
@@ -2355,7 +2355,7 @@ already existed."
 - [ ] Both suites green; final counts recorded and reported against the 434 / 59 baseline
 - [ ] `grep -rn "admin_brief\|brief_parser\|notif_email\|telegram_alerts_enabled" --include=*.py` in conclave returns nothing outside `migrations/002` history
 - [ ] `grep -rni "DeepSeekProvider\|providers.deepseek\|deepseek_api_key\|deepseek_base_url\|deepseek_model" conclave-seeds` returns nothing. (The string `deepseek` itself legitimately survives as a documented example — `LLM_MODEL` default, `.env.example` provider list, test fixtures.)
-- [ ] Nothing pushed to Gitea — Justin confirms every push
+- [ ] Nothing pushed to Gitea — the maintainer confirms every push
 
 ## Deliberately NOT in this plan
 

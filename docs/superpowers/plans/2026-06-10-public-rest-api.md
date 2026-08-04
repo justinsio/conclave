@@ -3074,7 +3074,7 @@ curl http://localhost:8001/v1/network/stats
 
 - [ ] **Step 3: Push to Gitea**
 
-Confirm with Justin before pushing:
+Confirm with the maintainer before pushing:
 ```bash
 git log --oneline -10
 git push origin master

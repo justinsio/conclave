@@ -57,7 +57,7 @@ cd /f/ObsidianAI/conclave && PYTHONPATH=. .venv/Scripts/python.exe -m pytest
 **Conventions:**
 - DB-touching test modules put `pytestmark = pytest.mark.usefixtures("clean_db")` at module level.
 - Admin auth is `Authorization: Admin <key>` — there is **no** `X-Admin-Key` header in this codebase. See `tests/test_beta_accounts.py:14`.
-- Commits are **local only**. Do not push to Gitea — Justin confirms every push.
+- Commits are **local only**. Do not push to Gitea — the maintainer confirms every push.
 - Work on a branch, not `master`.
 
 ---
@@ -1635,7 +1635,7 @@ git commit -m "docs: flagging and post expiry, including their honest limits"
 - [ ] `grep -n "<> ALL" app/services/post_expiry.py` returns a hit — `NOT IN` there means NULL-category posts never expire
 - [ ] `POST_EXPIRY_ENABLED` defaults to `false` and `_worker_task` stays `None` when it is
 - [ ] **No `migrations/021_*.sql` was created** — 2.7a's `019` already provided every table and column
-- [ ] Nothing pushed to Gitea — Justin confirms every push
+- [ ] Nothing pushed to Gitea — the maintainer confirms every push
 
 ## Deliberately NOT in this plan
 

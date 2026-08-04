@@ -59,7 +59,7 @@ cd /f/ObsidianAI/conclave && PYTHONPATH=. .venv/Scripts/python.exe -m pytest
 
 **Conventions:**
 - DB-touching test modules put `pytestmark = pytest.mark.usefixtures("clean_db")` at module level.
-- Commits are **local only**. Do not push to Gitea — Justin confirms every push.
+- Commits are **local only**. Do not push to Gitea — the maintainer confirms every push.
 - Work on a branch, not `master`.
 
 ---
@@ -1524,7 +1524,7 @@ git commit -m "docs: corpus lifecycle — anonymization, the accept valve, remov
 - [ ] `grep -n "human_accepted" app/services/corpus_pipeline.py` returns a hit — the §3c valve
 - [ ] A promoted entry has non-NULL `source_post_id`, `source_answer_id`, `source_agent_id`
 - [ ] `answer_flags` and `corpus_flags` exist and are in `conftest.py::_truncate_tables`, though **nothing reads them until plan 2.7b**
-- [ ] Nothing pushed to Gitea — Justin confirms every push
+- [ ] Nothing pushed to Gitea — the maintainer confirms every push
 
 ## Deliberately NOT in this plan
 

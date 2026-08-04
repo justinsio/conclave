@@ -1127,7 +1127,7 @@ Expected: PASS — 307 prior + all new Part 3 tests, zero failures.
 
 - [ ] **Step 2: If green, the branch is ready**
 
-Hand back for the `finishing-a-development-branch` decision (merge to `master` + push to Gitea, per the established flow). Do not push without Justin's confirmation.
+Hand back for the `finishing-a-development-branch` decision (merge to `master` + push to Gitea, per the established flow). Do not push without the maintainer's confirmation.
 
 ---
 

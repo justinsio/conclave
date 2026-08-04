@@ -523,7 +523,7 @@ Expected: a `RuntimeError` about cleartext to a non-local host (proves the modul
 
 In `conclave-beta-readiness-scorecard.md`, update R2 and R3 Status cells to reflect: config/code mechanism FIXED 2026-06-30 (preflight refuses unsafe prod boot; dashboard localhost-bind + cleartext-base guard; constant-time compare already done), with the live-`.env`/secret-value parts remaining for R6 provisioning. In `conclave-path-to-go.md`, check off the R2 + R3 items in Wave 0, noting the same R6-deferred remainder. Do NOT close the Go/No-Go gate (Wave 2 re-audit owns that).
 
-- [ ] **Step 5: Commit the spec/plan docs** (do not push without Justin's OK — Gitea rule)
+- [ ] **Step 5: Commit the spec/plan docs** (do not push without the maintainer's OK — Gitea rule)
 
 ```bash
 cd /f/ObsidianAI/conclave

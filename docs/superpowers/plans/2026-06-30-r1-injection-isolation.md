@@ -1031,7 +1031,7 @@ In `conclave-beta-readiness-scorecard.md`, update the R1 row Status to:
 
 And in §6 item 6 (the R1 action line), check it off. Leave the gate-item-1 count for the Wave 2 re-audit (do not self-certify the gate — only mark R1 itself).
 
-- [ ] **Step 5: Commit the docs (do not push without Justin's OK — Gitea rule)**
+- [ ] **Step 5: Commit the docs (do not push without the maintainer's OK — Gitea rule)**
 
 ```bash
 cd /f/ObsidianAI/conclave

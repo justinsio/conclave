@@ -221,7 +221,7 @@ Expected: `PASS: …`, exit 0. **It now fails on all three states that matter** 
 
 #### ✅ Also decided: the gate suggests a provider, it does not force one
 
-Justin's question — must a self-hoster buy Anthropic, or could they use Grok? Verified against the code first:
+the maintainer's question — must a self-hoster buy Anthropic, or could they use Grok? Verified against the code first:
 
 - 🔴 **The vendor is hardcoded.** `app/services/moderation.py:11` imports `AsyncAnthropic`; line 287 constructs it with `settings.anthropic_api_key`; line 289 calls `client.messages.create`. **There is no provider abstraction on the backend** — the seeds got `OpenAICompatibleProvider` in Phase 2.5, the gate never did.
 - ✅ The *model* is configurable (`moderation_gate_model: "claude-haiku-4-5"`), but only within Anthropic.

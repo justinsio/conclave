@@ -737,9 +737,9 @@ Push **the branch**, not `master`. Must source the shared ssh-agent in the same 
 . <home>/.ssh/agent.env && git -C /f/ObsidianAI/conclave push -u origin feat/monorepo-merge
 ```
 
-Expected: the push succeeds and the branch is tracked. If it reports `Permission denied (publickey)`, the agent has no key loaded — Justin must run `ssh-add ~/.ssh/id_ed25519` **in Git Bash**.
+Expected: the push succeeds and the branch is tracked. If it reports `Permission denied (publickey)`, the agent has no SSH key loaded in its shell — load one and retry.
 
-**Do not merge to `master` in this plan.** Merging is a decision for Justin once CI is green on the branch — see `superpowers:finishing-a-development-branch`.
+**Do not merge to `master` in this plan.** Merging is a decision for the maintainer once CI is green on the branch — see `superpowers:finishing-a-development-branch`.
 
 - [x] **Step 5: Confirm CI went green**
 
@@ -752,4 +752,4 @@ Check the Gitea Actions run for the pushed commit. **Do not proceed to Plan B un
 - **`Dockerfile`, `compose.yaml`, `mint_key.py`, `smoke.py`, fresh-box verification.** Plan B, written after this lands.
 - **Fixing the seeds' `conclave-internal` external-network bug.** It is compose work; the spec assigns it to the containerization step.
 - **Unpinning `streamlit<1.50`.** Task 7 explains why it is still load-bearing in CI.
-- **Archiving the old `conclave-seeds` / `conclave-dashboard` Gitea repos.** Needs Justin's decision — archive (keeps them readable) rather than delete, plus a README banner pointing at the monorepo. Raise it after this plan is green; do not act unasked.
+- **Archiving the old `conclave-seeds` / `conclave-dashboard` Gitea repos.** Needs the maintainer's decision — archive (keeps them readable) rather than delete, plus a README banner pointing at the monorepo. Raise it after this plan is green; do not act unasked.
