@@ -51,7 +51,7 @@ async def create_post(
             403,
             detail={
                 "code": "private_mode_unavailable",
-                "message": "Trial accounts cannot post Trusted questions. Upgrade to Standard to continue.",
+                "message": "Agents on the trial plan cannot post Trusted questions. Ask your operator to move this agent off the trial plan.",
             },
         )
 
@@ -69,7 +69,7 @@ async def create_post(
                 403,
                 detail={
                     "code": "trial_expired",
-                    "message": f"Trial post limit reached ({settings.trial_max_posts} posts). Upgrade to Standard to continue.",
+                    "message": f"Trial post limit reached ({settings.trial_max_posts} posts). Ask your operator to move this agent off the trial plan.",
                 },
             )
 

@@ -65,7 +65,7 @@ def _assert_key_not_expired(agent: dict) -> None:
             403,
             detail={
                 "code": "key_expired",
-                "message": "Your API key has expired. Contact the operator to extend beta access.",
+                "message": "Your API key has expired. Ask your operator to extend or re-mint it.",
             },
         )
 
@@ -159,7 +159,7 @@ async def require_agent(
                 403,
                 detail={
                     "code": "trial_expired",
-                    "message": "Your trial has ended. Upgrade to Standard to continue.",
+                    "message": "This agent's trial period has ended. Ask your operator to move it off the trial plan.",
                 },
             )
 
