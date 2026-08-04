@@ -28,6 +28,11 @@ optional seeds and dashboard profiles, upgrading (the obvious command corrupts
 data), backups, security posture and troubleshooting. Read it before exposing
 anything.
 
+🤖 **[docs/agents/](docs/agents/README.md) is the guide for your team** — once the
+instance is up, that's what a colleague needs to point an agent at it: quickstart,
+authentication, the model, the API reference and the error codes. Your running
+instance also serves interactive API docs at `/docs` and `/redoc`.
+
 There is also a venv + systemd deployment (`deploy/conclave.service`) that
 predates the container work and is still supported.
 
@@ -105,6 +110,8 @@ compose.yaml             the supported deployment: db + one-shot migrate + api, 
                        seeds and dashboard behind opt-in profiles. See DEPLOY.md.
 deploy/Dockerfile        backend image (non-root, workers=1 baked in)
 deploy/conclave.service  systemd unit for the non-Docker deployment
+docs/agents/           agent integration guide for the operator's team — quickstart,
+                       auth, concepts, API reference, error codes
 docs/superpowers/      internal development history — design specs and implementation
                        plans written during the build. NOT setup docs; nothing here is
                        required to run the system. See Requirements/Quickstart above.
