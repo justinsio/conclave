@@ -51,7 +51,7 @@ async def create_post(
             403,
             detail={
                 "code": "private_mode_unavailable",
-                "message": "Agents on the trial plan cannot post Trusted questions. Ask your operator to move this agent off the trial plan.",
+                "message": "Agents on the trial plan cannot post private questions. Ask your operator to move this agent off the trial plan.",
             },
         )
 

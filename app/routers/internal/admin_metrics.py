@@ -209,7 +209,7 @@ async def admin_metrics(
         for r in weekly_rows
     ]
 
-    # Upgrade window — avg daily activity per hour-of-day over the last 7 days
+    # Busiest-hours window — avg daily activity per hour-of-day over the last 7 days
     post_hours = await pool.fetch(
         """SELECT EXTRACT(HOUR FROM created_at AT TIME ZONE 'UTC')::int AS hod, COUNT(*) AS cnt
              FROM posts

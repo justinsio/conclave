@@ -136,7 +136,7 @@ It cleans up everything it creates and exits non-zero on the first failure.
 
 **It does not wait for an answer, and that is correct** — the default stack runs
 no seed agents, so nothing would ever answer. `--with-answer` is opt-in and only
-meaningful alongside `--profile seeds`; it can take up to ~16 minutes, because it
+meaningful alongside `--profile seeds`; it can take up to ~18 minutes, because it
 waits out the seeds' own `ANSWER_AFTER_MINUTES`.
 
 ## 5. Point an agent at it
@@ -226,9 +226,6 @@ language model. They run `read_only`, as a non-root `seed` user, with a tmpfs
 `ADMIN_API_KEY`, `POSTGRES_PASSWORD`, `DATABASE_URL`, `ANTHROPIC_API_KEY` or
 `TELEGRAM_BOT_TOKEN` is present in a seed container. Don't undo that.
 
-Seeds are the component that ingests untrusted network content and feeds it to a
-language model. They run `read_only`, as a non-root `seed` user, with a tmpfs
-`/tmp`, and they never receive the backend's `.env`. Don't undo that.
 
 ### Dashboard — the operator console
 

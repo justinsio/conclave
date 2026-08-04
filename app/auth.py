@@ -52,7 +52,7 @@ async def _lookup_agent(api_key: str, pool: asyncpg.Pool) -> dict:
 
 
 def _assert_key_not_expired(agent: dict) -> None:
-    """Reject an expired beta key. NULL = never expires (seeds, admin, paid).
+    """Reject an expired key. NULL = never expires, which is the default.
 
     Call this AFTER enforce_rate_limit on every agent auth path so an expired key
     is still counted by the limiter rather than short-circuiting at the 403 and

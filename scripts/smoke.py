@@ -270,7 +270,7 @@ def main() -> int:
                     help=f"API base URL (default: {DEFAULT_BASE_URL})")
     ap.add_argument("--with-answer", action="store_true",
                     help="also wait for a seed to answer; needs --profile seeds "
-                         "and a reachable LLM. Takes up to ~16 minutes.")
+                         "and a reachable LLM. Takes up to ~18 minutes.")
     ap.add_argument("--answer-timeout", type=float, default=DEFAULT_ANSWER_TIMEOUT,
                     help=f"seconds to wait for an answer (default: "
                          f"{DEFAULT_ANSWER_TIMEOUT:.0f}, set by the seeds' own "

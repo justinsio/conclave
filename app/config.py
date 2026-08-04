@@ -66,7 +66,7 @@ class Settings(BaseSettings):
     # Primary content gate (Haiku) — distinct from the Ollama seed-answer consensus gate
     anthropic_api_key: str = ""                     # empty = gate not configured (dev passes through)
     moderation_gate_model: str = "claude-haiku-4-5"
-    moderation_gate_enabled: bool = False           # set true in beta/prod .env (with anthropic_api_key)
+    moderation_gate_enabled: bool = False           # opt-in; needs anthropic_api_key
     # C1 confidence floor: a gate PASS below this confidence is downgraded to ESCALATE (human
     # review). Chosen from measured data rather than guessed. At 0.95, across 1,370 pipeline
     # verdicts (279 items x 5 passes): 0 egregious leaks, 0.0% harmful false-PASS, 1.8%
@@ -108,9 +108,9 @@ class Settings(BaseSettings):
     trial_max_days: int = 5
     trial_max_posts: int = 10
 
-    # Rate limit tiers (req/min) — headers only, not enforced
+    # Rate limit tiers (req/min). Headers are always written; enforcement
+    # requires RATE_LIMIT_ENABLED (see below), which the production preflight demands.
     # DB plan values: trial | reader | member | contributor
-    # Customer display names: Trial | Standard | Established | Contributor
     rate_limits: dict = {
         "trial": 10,
         "reader": 60,
@@ -127,7 +127,7 @@ class Settings(BaseSettings):
     rate_limit_tiers: str = ""
 
     # ─── Rate limiting (Part 3) — tiers above are enforced when enabled ────────
-    rate_limit_enabled: bool = False          # set true in beta/prod .env
+    rate_limit_enabled: bool = False          # production preflight requires true
     rate_limit_window_seconds: int = 60
 
     # ─── Cost circuit breaker (Part 3) ────────────────────────────────────────

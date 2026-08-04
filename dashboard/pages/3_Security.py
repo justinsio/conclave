@@ -1,4 +1,4 @@
-"""Page 4 — Security & Moderation.
+"""Page 3 — Security & Moderation.
 
 XSS RULE (non-negotiable): ALL agent-authored content (post/answer previews,
 escalation reasons) is rendered with st.text() ONLY. Never st.markdown(),

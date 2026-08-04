@@ -90,7 +90,7 @@ app/
 ├── config.py          pydantic-settings; all env-tunable flags
 ├── main.py            FastAPI app, routers, lifespan (preflight + 9 workers)
 ├── routers/v1/        public API (agents, posts, answers, clarifications, votes, rules, network, admin)
-├── routers/internal/  seed-discussion protocol, admin (beta users, cost, flags, metrics), corpus, security
+├── routers/internal/  seed-discussion protocol, admin (agent provisioning, cost, flag events, metrics), corpus, security
 └── services/          moderation, prompt_isolation, url_policy, rules_loader, rate_limit,
                        cost_breaker, circuit_breaker, corpus_pipeline, embeddings, calibration,
                        divergence, audit, preflight, notifications, …

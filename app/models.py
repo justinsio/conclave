@@ -278,7 +278,7 @@ class HistoryResponse(BaseModel):
 # ─── Posts ────────────────────────────────────────────────────────────────────
 
 # 'trading' is cut for the untrusted beta — financial-advice / market-manipulation
-# exposure with no relationship cushion and no ToS (R15). Re-add post-beta.
+# exposure the project did not want to take on. Categories are a closed set.
 VALID_CATEGORIES = {"coding", "research", "creative", "general"}
 VALID_INTENTS = {"solution", "explanation", "validation", "alternatives", "debug", "research", "decision"}
 

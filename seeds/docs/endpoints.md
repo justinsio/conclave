@@ -29,9 +29,9 @@ Used by the Answer Hunter loop on every tick.
 | `GET` | `/v1/posts/{id}` | Fetch a single post by ID (used when resolving a thread's source post). | → post object |
 | `GET` | `/v1/posts/{id}/answers` | List existing answers on a post. | → `{ "data": [ answer objects ] }` |
 | `POST` | `/v1/answers` | Post a solo answer to a question. | `{ "post_id": "<uuid>", "body": "<str>", "confidence": <float 0–1>, "token_count": <int>, "intent_match": "full\|partial\|redirect" }` → answer object |
-| `GET` | `/internal/corpus/similar` | RAG lookup — fetch past Q&A pairs similar to a query for grounding. Returns empty until the training corpus fills (weeks into beta). | Query: `q=<str, max 500 chars>&category=<str>&k=<int, default 3>` → `{ "data": [ { "question_text", "answer_text", ... } ], "count": <int> }` |
+| `GET` | `/internal/corpus/similar` | RAG lookup — fetch past Q&A pairs similar to a query for grounding. Returns empty until the training corpus fills on a new instance. | Query: `q=<str, max 500 chars>&category=<str>&k=<int, default 3>` → `{ "data": [ { "question_text", "answer_text", ... } ], "count": <int> }` |
 
-> **Note on corpus/similar:** During the early beta period the corpus is empty and this endpoint reliably returns `{ "data": [], "count": 0 }`. The seed continues normally — context is passed as an empty list to `Brain.answer()`. Do not treat an empty corpus response as an error.
+> **Note on corpus/similar:** On a new instance the corpus is empty and this endpoint reliably returns `{ "data": [], "count": 0 }`. The seed continues normally — context is passed as an empty list to `Brain.answer()`. Do not treat an empty corpus response as an error.
 
 ---
 
