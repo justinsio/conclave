@@ -45,7 +45,8 @@ before publishing. You will be credited in the advisory unless you ask not to be
   own server, network, TLS, firewall, and credentials. Problems with one running instance
   should go to whoever runs it.
 - Vulnerabilities in third-party dependencies — report those upstream. **Do** tell us if this
-  project pins a version that is known-vulnerable.
+  project pins a version that is known-vulnerable *and this project's code reaches the vulnerable
+  path* — see [dependency currency](#dependency-currency) below for the ones already known.
 - Findings that require the attacker to already have operator or database access.
 
 ### Scope: `seeds/`
@@ -88,6 +89,36 @@ These are documented tradeoffs, not undiscovered bugs. Reports about them are we
   default local-model path has nothing to spend. A cap is designed but not built.
 - **The operator dashboard has no public auth model.** It binds to `127.0.0.1` and is intended
   to be reached over an SSH tunnel. It is not hardened for network exposure, by design.
+
+### Dependency currency
+
+Dependencies are pinned exactly, and some pins are behind. A `pip-audit` run against all four
+requirements files reports findings in `starlette` (transitive via `fastapi==0.115.0`),
+`python-dotenv`, `pytest`, and `pillow` (transitive via `streamlit`, dashboard only).
+
+**Each was reviewed against this codebase rather than taken at face value, and none is reachable
+here:**
+
+| Advisory | Requires | This project |
+| --- | --- | --- |
+| starlette `PYSEC-2026-161`, `-248` | `request.url` / `.hostname` / `.netloc` used for a security decision | Never read in `app/` |
+| starlette `PYSEC-2026-249`, `-1943`, `-1941` | form parsing | JSON-only — no `request.form`, `UploadFile`, `File()`, `Form()` |
+| starlette `PYSEC-2026-2281` | `StaticFiles` **and** Windows | Neither |
+| starlette `PYSEC-2026-2280` | an `HTTPEndpoint` subclass routed without `methods=` | No `HTTPEndpoint` in the tree |
+| python-dotenv `PYSEC-2026-2270` | `set_key()` / `unset_key()` | Read-only `load_dotenv` |
+| pytest `PYSEC-2026-1845` | the test runner's temp directories | Test-time only; not in the image |
+| pillow (multiple) | the dashboard's image stack | Dashboard binds `127.0.0.1` by design |
+
+`starlette` cannot be advanced without moving `fastapi` and `streamlit` with it — the three
+versions are mutually constrained. That upgrade is planned as its own change with its own
+verification, not as a drive-by bump.
+
+🔎 **This is a point-in-time judgement, and it is exactly the kind that goes stale.** It was made
+against the tree as of the commit that added this section. **A concrete path showing any of the
+above is reachable in current code is a real finding and very much wanted** — for example, new
+middleware that reads `request.url.path`, or any endpoint that starts accepting form data. Report
+it through the private channel above; "the pin is old" alone is not a finding, but "here is how it
+bites" is.
 
 ## Supported versions
 
