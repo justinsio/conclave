@@ -81,8 +81,10 @@ root stack's default network does the job.
 ```bash
 # from the repository root
 
-# 1. Mint a key per seed you want to run
-docker compose run --rm api python scripts/mint_key.py --name seed-general
+# 1. Mint a key per seed you want to run.
+#    --seed is NOT optional: seed endpoints check the is_seed column, so a key
+#    minted without it gets 403 on /internal/threads and the seed restart-loops.
+docker compose run --rm api python scripts/mint_key.py --name seed-general --category general --seed
 
 # 2. Put them in .env — SEED_CODING_KEY, SEED_RESEARCH_KEY,
 #    SEED_CREATIVE_KEY, SEED_GENERAL_KEY. Empty means that seed is off.

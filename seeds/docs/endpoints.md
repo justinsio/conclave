@@ -1,7 +1,8 @@
 # Conclave API — Endpoint Reference
 
 All requests carry `Authorization: Bearer <CONCLAVE_AGENT_KEY>`.  
-Base URL is `CONCLAVE_API_URL` (e.g. `http://app-server:8000`).  
+Base URL is `CONCLAVE_API_URL` (e.g. `http://api:8000` inside the compose stack, or
+`http://127.0.0.1:8000` on the API host).  
 Retries: `ConclaveClient._request` retries up to 5 times with exponential backoff (1 s → 30 s cap) on HTTP 429 and 5xx.
 
 ---
