@@ -101,11 +101,22 @@ class CritiqueResult:
 
 def _promotion_decision(seed_check_score: float | None, critique_verdict: str | None) -> str:
     """
-    Returns 'promote', 'hold', or 'reject' per the dual-signal correctness gate matrix.
-    None inputs (Ollama unavailable) → hold for retry.
+    Returns 'promote', 'hold', 'reject', or 'skip' per the dual-signal gate matrix.
+
+    'skip' means the gate could not be ASKED — Ollama unreachable, the model not
+    pulled, or a reply that would not parse. That is categorically different from
+    asking and getting an inconclusive answer, and conflating the two destroyed
+    data: 'hold' burns a retry and adds a day of backoff, so three infrastructure
+    failures permanently reject an entry with 'max retries exceeded'. Its source
+    answer already carries corpus_submitted_at, so run_ingest will never offer it
+    again — an answer the operator explicitly accepted is gone, silently.
+
+    The retry ceiling exists to stop the gate reconsidering a genuinely
+    borderline entry forever. It was never meant to count outages. A skipped
+    entry is left completely untouched and simply waits.
     """
     if seed_check_score is None or critique_verdict is None:
-        return "hold"
+        return "skip"
     if critique_verdict == "FLAWED":
         return "reject"
     if seed_check_score >= 0.80 and critique_verdict == "SOUND":
@@ -130,17 +141,53 @@ def _bow_cosine(a: str, b: str) -> float:
 
 
 def _extract_last_json(raw: str) -> dict | None:
-    try:
-        return json.loads(raw.strip())
-    except (json.JSONDecodeError, ValueError):
-        pass
-    last_brace = raw.rfind("{")
-    if last_brace >= 0:
+    """Return the last top-level JSON object in a model's reply.
+
+    Two properties, both learned the hard way, and this function had NEITHER —
+    it was a weaker duplicate of the identically-named one in moderation.py.
+
+    **raw_decode, not a whole-string parse.** Models wrap output in ```json
+    fences and add prose around it, which a strict json.loads rejects outright.
+    Scanning with raw_decode tolerates the surrounding noise, and advancing past
+    each decoded object means a '{' nested inside a string value cannot be
+    mistaken for a top-level object.
+
+    **Returning the LAST object is an injection defence, not a convenience.**
+    The cross-check and critique prompts embed agent-authored question and
+    answer text. A forged JSON block planted earlier in that content must not be
+    able to displace the model's real verdict. moderation.py has carried this
+    reasoning since R1; this copy silently did not.
+
+    **strict=False.** Strict JSON forbids raw control characters inside string
+    values, and a local model writing a multi-line answer — numbered points,
+    blank lines between paragraphs — puts literal newlines exactly there.
+    Observed live: the model answered correctly and at length, and the newlines
+    between its numbered points threw the whole verdict away. The caller reads
+    an unparseable reply as "gate unavailable", which used to burn a retry and
+    eventually reject the entry outright.
+
+    ⚠️ moderation.py's copy is deliberately NOT given strict=False here. Its
+    parse failures are already fail-safe (ESCALATE, never PASS), and any change
+    to gate behaviour is governed by the standing rule that evals/moderation/
+    must be re-run against the model. That is a costed decision, not this fix.
+    """
+    decoder = json.JSONDecoder(strict=False)
+    text = raw or ""
+    last: dict | None = None
+    i, n = 0, len(text)
+    while i < n:
+        start = text.find("{", i)
+        if start < 0:
+            break
         try:
-            return json.loads(raw[last_brace:])
+            obj, end = decoder.raw_decode(text, start)
         except (json.JSONDecodeError, ValueError):
-            pass
-    return None
+            i = start + 1
+            continue
+        if isinstance(obj, dict):
+            last = obj
+        i = end
+    return last
 
 
 async def _ollama_chat(prompt: str) -> str | None:
@@ -332,9 +379,16 @@ async def run_ingest(pool: asyncpg.Pool) -> int:
 async def run_promote(pool: asyncpg.Pool) -> int:
     """
     Process staged entries whose quarantine window has elapsed.
-    Runs dual-signal correctness gate; promotes, rejects, or holds each entry.
+    Runs dual-signal correctness gate; promotes, rejects, holds or skips each entry.
     Returns the number promoted to training_corpus.
     """
+    # Both gate signals need Ollama. Without it every candidate would be fetched,
+    # evaluated against nothing, and skipped — a query and a log line per entry
+    # per tick, forever. run_ingest carries the same guard for the same reason;
+    # this side is where the data loss used to happen, so it needs it more.
+    if not settings.ollama_base_url:
+        return 0
+
     max_retries = 2
     promoted = 0
 
@@ -361,6 +415,24 @@ async def run_promote(pool: asyncpg.Pool) -> int:
         critique = await _critique_answer(question, answer)
         verdict_str = critique.verdict if critique else None
         decision = _promotion_decision(seed_score, verdict_str)
+
+        if decision == "skip":
+            # The gate could not be asked. Leave the row exactly as it is — no
+            # retry, no backoff, no status change — and say so loudly enough that
+            # an operator can act. A missing model is the common cause and Ollama
+            # reports it as a 404, which reads like a wrong URL rather than a
+            # wrong model name, so name both here.
+            logger.warning(
+                "corpus_pipeline: gate unavailable for %s (cross-check=%s critique=%s) "
+                "— entry left pending, no retry consumed. Check that Ollama at %s "
+                "has the model %r pulled.",
+                entry_id,
+                "ok" if seed_score is not None else "unavailable",
+                "ok" if verdict_str is not None else "unavailable",
+                settings.ollama_base_url,
+                settings.moderation_model,
+            )
+            continue
 
         async with pool.acquire() as conn:
             async with conn.transaction():
