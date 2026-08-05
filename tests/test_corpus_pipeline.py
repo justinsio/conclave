@@ -46,6 +46,10 @@ def _reach_the_promote_gate(monkeypatch):
     """
     from app.config import settings
     monkeypatch.setattr(settings, "ollama_base_url", "http://fake")
+    # The gate ships OFF. Tests below stub _seed_cross_check / _critique_answer
+    # to exercise the promotion matrix, which only runs when it is on — without
+    # this they would assert against a short-circuit that never calls them.
+    monkeypatch.setattr(settings, "corpus_gate_enabled", True)
 
 
 def _enable_anonymized_ingest(monkeypatch):
@@ -570,6 +574,7 @@ async def test_promote_does_not_burn_a_retry_when_the_gate_cannot_be_asked(
     """
     from app.config import settings
 
+    _reach_the_promote_gate(monkeypatch)
     monkeypatch.setattr(settings, "ollama_base_url", "http://unreachable.invalid")
     entry_id = await _insert_staging_entry(db_pool)
     before = await db_pool.fetchrow(
@@ -609,9 +614,7 @@ async def test_promote_still_holds_when_the_gate_answers_inconclusively(db_pool,
     retry ceiling would stop working entirely. Distinguishing the two cases is
     the whole point of the change.
     """
-    from app.config import settings
-
-    monkeypatch.setattr(settings, "ollama_base_url", "http://fake")
+    _reach_the_promote_gate(monkeypatch)
     entry_id = await _insert_staging_entry(db_pool)
 
     with (
@@ -672,3 +675,70 @@ class TestExtractLastJson:
     def test_genuinely_unparseable_still_returns_none(self):
         """The fix must not turn "no JSON here" into a false positive."""
         assert _extract_last_json("I could not answer that.") is None
+
+
+# ─── The correctness gate is off by default ───────────────────────────────────
+#
+# The gate was designed when training_corpus was a FINE-TUNING dataset, where a
+# poisoned entry is baked into weights permanently and undetectably — a context
+# in which rejecting good data is cheap insurance. Phase 2.8 made the same table
+# a live RETRIEVAL corpus and nobody recalibrated it.
+#
+# Measured on llama3.2:3b and llama3.1:8b against two answers verified correct:
+# zero SOUND verdicts in 12 attempts, verdicts varying run to run on identical
+# input, and FLAWED rejecting unconditionally. Nothing could ever promote.
+
+async def test_gate_off_by_default_promotes_without_consulting_a_model(db_pool, monkeypatch):
+    """With the gate off, accept is the valve and no LLM is consulted.
+
+    The mocks raise: if either gate call is made the test fails loudly rather
+    than passing on a stubbed verdict, which is what makes this prove the
+    short-circuit rather than merely observe a promotion.
+    """
+    from app.config import settings
+    monkeypatch.setattr(settings, "ollama_base_url", "http://fake")
+    assert settings.corpus_gate_enabled is False, "the shipped default must be off"
+
+    async def _boom(*a, **kw):
+        raise AssertionError("the gate must not be consulted when it is disabled")
+
+    await _insert_staging_entry(db_pool)
+    with (
+        patch("app.services.corpus_pipeline._seed_cross_check", new=_boom),
+        patch("app.services.corpus_pipeline._critique_answer", new=_boom),
+        patch(
+            "app.services.corpus_pipeline.get_embeddings",
+            new=AsyncMock(return_value=[[1.0, 0.0]]),
+        ),
+    ):
+        assert await run_promote(db_pool) == 1
+
+    row = await db_pool.fetchrow("SELECT promotion_status FROM corpus_staging")
+    assert row["promotion_status"] == "promoted"
+
+
+async def test_gate_on_still_rejects_flawed(db_pool, monkeypatch):
+    """The control: turning it on must restore the full gate, not a no-op flag.
+
+    Without this, corpus_gate_enabled could be wired to nothing and every test
+    above would still pass.
+    """
+    from app.config import settings
+    monkeypatch.setattr(settings, "ollama_base_url", "http://fake")
+    monkeypatch.setattr(settings, "corpus_gate_enabled", True)
+
+    await _insert_staging_entry(db_pool)
+    with (
+        patch(
+            "app.services.corpus_pipeline._seed_cross_check",
+            new=AsyncMock(return_value=0.95),
+        ),
+        patch(
+            "app.services.corpus_pipeline._critique_answer",
+            new=AsyncMock(return_value=CritiqueResult("FLAWED", 0.9, ["wrong"], "no")),
+        ),
+    ):
+        assert await run_promote(db_pool) == 0
+
+    row = await db_pool.fetchrow("SELECT promotion_status FROM corpus_staging")
+    assert row["promotion_status"] == "rejected"

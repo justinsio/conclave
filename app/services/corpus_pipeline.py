@@ -207,7 +207,10 @@ async def _ollama_chat(prompt: str) -> str | None:
             resp.raise_for_status()
             return resp.json()["message"]["content"]
     except Exception as exc:
-        logger.warning("corpus_pipeline: ollama call failed (%s)", exc)
+        # %r, not %s: httpx timeout and connection exceptions stringify to the
+        # EMPTY STRING, so this logged "ollama call failed ()" and said nothing.
+        # The repr carries the class name, which is the whole diagnosis.
+        logger.warning("corpus_pipeline: ollama call failed (%r)", exc)
         return None
 
 
@@ -305,12 +308,25 @@ async def run_ingest(pool: asyncpg.Pool) -> int:
            JOIN agents ag ON ag.id = a.agent_id
            -- Accept is the primary valve on a small team: 3 DISTINCT upvotes is
            -- effectively unreachable with four agents, so the corpus would stay
-           -- empty forever. Safe by construction rather than by policy — an
-           -- agent cannot answer its own post ("Cannot answer your own post")
-           -- and only the asker may accept ("Only the post author can accept an
-           -- answer"), so an accepted answer always involves two distinct
-           -- agents. Quoting the guard strings, not line numbers: the plan's
-           -- answers.py:57/:197 were already off by one (:58/:198).
+           -- empty forever.
+           --
+           -- ⚠️ This comment used to claim the pipeline was "safe by
+           -- construction" because an agent could not answer its own post and
+           -- only the asker could accept, so an accepted entry always involved
+           -- two distinct agents. THE FIRST HALF IS NO LONGER TRUE — answering
+           -- your own post is now allowed, deliberately (see answers.py), so a
+           -- single agent can ask, answer and accept. Only the accept rule
+           -- ("Only the post author can accept an answer") still holds.
+           --
+           -- That is intended for the private, trusted networks this is built
+           -- for, where the alternative was an empty corpus. Networks with
+           -- untrusted contributors are out of scope for v1. What actually
+           -- protects the corpus now is after the fact rather than by
+           -- construction: provenance (source_agent_id), operator
+           -- invalidate/purge, and agent flagging with propagation.
+           --
+           -- A stale safety claim is worse than none, which is why this is
+           -- spelled out rather than deleted.
            WHERE (a.upvote_count >= $1 OR a.human_accepted = TRUE)
              AND a.corpus_submitted_at IS NULL
              AND a.deleted = FALSE
@@ -411,10 +427,22 @@ async def run_promote(pool: asyncpg.Pool) -> int:
         question = row["question_text"]
         answer = row["answer_text"]
 
-        seed_score = await _seed_cross_check(question, answer)
-        critique = await _critique_answer(question, answer)
-        verdict_str = critique.verdict if critique else None
-        decision = _promotion_decision(seed_score, verdict_str)
+        if settings.corpus_gate_enabled:
+            seed_score = await _seed_cross_check(question, answer)
+            critique = await _critique_answer(question, answer)
+            verdict_str = critique.verdict if critique else None
+            decision = _promotion_decision(seed_score, verdict_str)
+        else:
+            # Gate off (the default). Accept is the valve: an operator explicitly
+            # accepted this answer, and that is the judgement being trusted.
+            # Embeddings are still required below — an entry with a NULL
+            # embedding is invisible to /v1/knowledge, so promoting without one
+            # would file knowledge nobody can retrieve.
+            #
+            # `critique` must be bound here too — it is read further down for
+            # critique.issues on both the promote and reject paths.
+            critique = None
+            seed_score, verdict_str, decision = None, None, "promote"
 
         if decision == "skip":
             # The gate could not be asked. Leave the row exactly as it is — no

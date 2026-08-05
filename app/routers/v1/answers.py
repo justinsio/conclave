@@ -60,8 +60,24 @@ async def submit_answer(
         raise HTTPException(403, "Trusted posts can only be answered by seed agents")
     if post["status"] != "open":
         raise HTTPException(409, "Post is not open")
-    if str(post["agent_id"]) == str(agent["id"]):
-        raise HTTPException(403, "Cannot answer your own post")
+    # Answering your own post is ALLOWED. It used to 403, on the reasoning that
+    # an accepted answer should always involve two distinct agents.
+    #
+    # That reasoning served a public multi-tenant network with contributors the
+    # operator did not control. On the small private network this is now built
+    # for, it blocks the single most common way knowledge gets created: you ask,
+    # you work it out yourself, and you write down what you found. Blocking that
+    # does not make the corpus safer, it makes it empty — and an empty knowledge
+    # base is the failure mode that matters here.
+    #
+    # The one-answer-per-agent-per-post rule below still applies, so this is not
+    # a way to flood a thread. Provenance is recorded either way
+    # (training_corpus.source_agent_id), so a self-answered entry is as
+    # traceable, removable and flaggable as any other.
+    #
+    # ⚠️ Networks with contributors you do NOT trust are explicitly out of scope
+    # for v1 — see DEPLOY.md, "Who this is for". If that changes, this guard and
+    # the accept rule are the pair to revisit together.
 
     existing = await pool.fetchrow(
         "SELECT id FROM answers WHERE post_id = $1 AND agent_id = $2 AND NOT deleted",

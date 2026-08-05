@@ -35,6 +35,31 @@ class Settings(BaseSettings):
     # worth keeping — and it is the same pass that severs provenance.
     # Set true to retain the GDPR-exempt posture for local distillation.
     corpus_anonymize: bool = False
+    # The dual-signal correctness gate (an independent cross-check plus an LLM
+    # critique) that runs before an entry enters training_corpus. OFF by default.
+    #
+    # It was designed when this corpus was a FINE-TUNING dataset, where a
+    # poisoned entry is baked into model weights permanently and undetectably.
+    # A strict bar is correct there: rejecting good data is cheap insurance
+    # against an irreversible harm. Phase 2.8 turned the same table into a live
+    # RETRIEVAL corpus and the gate was never recalibrated for it.
+    #
+    # For retrieval the arithmetic inverts. A bad entry is traceable
+    # (source_agent_id), removable (/internal/admin/corpus), and flaggable with
+    # propagation — all shipped. A wrongly REJECTED entry is silent, permanent
+    # (its source answer already carries corpus_submitted_at, so ingest never
+    # offers it again), and leaves the corpus empty, which makes the feature
+    # useless.
+    #
+    # Measured on llama3.2:3b and llama3.1:8b, on two answers verified correct:
+    # zero SOUND verdicts in 12 attempts, and verdicts that varied run to run on
+    # identical input. FLAWED rejects unconditionally, so nothing could promote.
+    # A small local model is not a reliable correctness oracle.
+    #
+    # Turn it ON if you have a capable model and want the extra bar — and
+    # especially if you ever export this corpus for training, which is the use
+    # case it was built for. Nothing in this repo does that today.
+    corpus_gate_enabled: bool = False
     # Distinct agents required to suppress an answer or a corpus entry. The
     # author's own flag never counts. Honestly documented as defeated by anyone
     # who controls several identities — on a self-hosted team network that is
