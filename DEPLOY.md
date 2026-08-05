@@ -382,9 +382,30 @@ once — read all of it, not the first line.
 Almost always a `POSTGRES_PASSWORD` changed after first boot — see *Changing the
 database password*. Also check for `/`, `+` or `@` in the password.
 
-**A seed restart-loops**
-Its `CONCLAVE_AGENT_KEY` is empty. The container names the variable to set. Mint
-a key with `scripts/mint_key.py` and put it in `.env`.
+**A seed exited instead of running**
+Its `CONCLAVE_AGENT_KEY` is almost certainly empty. The container names the
+variable to set — `docker compose logs seed-general`. Mint a key with
+`scripts/mint_key.py`, put it in `.env`, and bring the profile up again.
+
+Seeds run under `restart: on-failure:3`, not `unless-stopped`, so a
+misconfigured seed **stops after three attempts and stays stopped** rather than
+retrying forever. That is deliberate: a missing key is permanent, and a silent
+infinite restart loop is how it goes unnoticed for days. Use `ps -a` — without
+`-a` an exited container is invisible and the seed looks like it was never
+started:
+
+```bash
+docker compose --profile seeds ps -a
+```
+
+A seed that has been running and then hits a transient failure still gets three
+fresh attempts, because Docker resets the retry counter once a container has
+stayed up for ~10 seconds.
+
+> ⚠️ **An empty value can arrive by accident.** If you edited `.env` on Windows
+> or copied the tree across without a `git clone`, `SEED_GENERAL_KEY=` may hold
+> a stray carriage return. That is a one-character value: it looks set in an
+> editor and is empty to the app. `grep -c $'\r' .env` returns 0 on a clean file.
 
 **Every dashboard panel returns 403**
 `CONCLAVE_ADMIN_KEY` was set by hand in `.env` and is shadowing the bridged

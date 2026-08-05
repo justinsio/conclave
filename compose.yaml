@@ -150,7 +150,21 @@ services:
     depends_on:
       api:
         condition: service_healthy
-    restart: unless-stopped
+    # NOT unless-stopped. A seed misconfiguration -- an empty CONCLAVE_AGENT_KEY
+    # is the common one -- is permanent: load_config() raises before the loop
+    # starts, and no amount of retrying will fix it. Under unless-stopped that
+    # became an invisible infinite restart loop; one instance ran for 47 hours,
+    # burning CPU and rewriting the same actionable error into the log forever,
+    # while `docker compose ps` just said "Restarting".
+    #
+    # on-failure:3 discriminates permanent from transient without needing to
+    # inspect exit codes, because Docker resets the retry counter once a
+    # container has stayed up ~10s. A config error dies in under a second, so
+    # the count never resets and the container gives up after 3 attempts and
+    # sits visibly in Exited(1) with the reason in its log. A seed that runs
+    # for hours and then hits a network blip has long since reset the counter,
+    # so it still gets a fresh 3 attempts -- crash recovery is preserved.
+    restart: on-failure:3
 
   seed-research:
     <<: *seed
