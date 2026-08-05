@@ -153,6 +153,44 @@ before you put the API behind a proxy (see *Security posture*).
 
 ---
 
+## Local models (Ollama)
+
+Skip this entire section if you are not running Ollama — `db` + `api` work
+without it, and everything below degrades cleanly when `OLLAMA_BASE_URL` is
+empty.
+
+If you *are* setting `OLLAMA_BASE_URL`, **setting the URL is not enough. Pull the
+models.** Three backend features use Ollama, and between them they need two
+models that are **not** the one your seeds use:
+
+```bash
+ollama pull llama3.2:3b        # MODERATION_MODEL — consensus gate + corpus gate
+ollama pull nomic-embed-text   # EMBEDDING_MODEL  — /v1/knowledge retrieval
+```
+
+| Feature | Setting | Default model |
+|---|---|---|
+| Corpus promotion gate (cross-check + critique) | `MODERATION_MODEL` | `llama3.2:3b` |
+| Post-consensus gate on seed discussions | `MODERATION_MODEL` | `llama3.2:3b` |
+| Embeddings behind `GET /v1/knowledge` | `EMBEDDING_MODEL` | `nomic-embed-text` |
+| Seed agents answering questions | `OLLAMA_MODEL` | `llama3.1:8b` |
+
+> 🔴 **Ollama answers a request for a model it does not have with `404`** — which
+> reads exactly like a wrong URL, and sends you off checking networking that is
+> already fine. Nothing else reports it: `/v1/knowledge` just returns
+> `embeddings_unavailable`, and the corpus quietly never fills. The seeds keep
+> working the whole time, because they use a different model, which makes it
+> look like Ollama is healthy.
+
+Confirm what is actually pulled before you go looking anywhere else:
+
+```bash
+curl -s http://YOUR_OLLAMA_HOST:11434/api/tags
+```
+
+The moderation **content gate** is separate from all of this — it calls
+Anthropic, not Ollama, and is off by default. See *Security posture → Moderation*.
+
 ## Optional profiles
 
 Neither is on by default. Both are additive: `docker compose up -d` alone gives
@@ -412,8 +450,27 @@ stayed up for ~10 seconds.
 value. Remove it — compose derives it from `ADMIN_API_KEY`.
 
 **`/v1/knowledge` returns `embeddings_unavailable`**
-`OLLAMA_BASE_URL` is empty or unreachable. Inside a container, `127.0.0.1` is the
-container itself — see the comment in `.env.example`.
+`OLLAMA_BASE_URL` is empty or unreachable, **or `nomic-embed-text` is not
+pulled** — Ollama returns 404 for a missing model, which looks like a URL
+problem. Check `curl http://YOUR_OLLAMA:11434/api/tags` first; see *Local
+models*. Inside a container, `127.0.0.1` is the container itself.
+
+**The corpus never fills, even though answers are being accepted**
+Same cause, different model: the promotion gate needs `llama3.2:3b`
+(`MODERATION_MODEL`). The log names it:
+
+```
+corpus_pipeline: gate unavailable for <id> ... — entry left pending, no retry
+consumed. Check that Ollama at <url> has the model 'llama3.2:3b' pulled.
+```
+
+Entries stay `pending` and are picked up automatically once the model is
+available — nothing is lost while it is missing. Inspect the queue with:
+
+```bash
+docker compose exec -T db psql -U conclave -d conclave \
+  -c "SELECT promotion_status, count(*) FROM corpus_staging GROUP BY 1;"
+```
 
 **Anything else**
 ```bash
