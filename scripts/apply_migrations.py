@@ -58,7 +58,11 @@ async def apply(dry_run: bool) -> None:
 
         for f in pending:
             async with conn.transaction():
-                await conn.execute(f.read_text())
+                # encoding is explicit on purpose: read_text() defaults to the
+                # host locale (cp1252 on Windows), which silently mis-decodes
+                # these UTF-8 files instead of raising. See
+                # tests/test_migration_encoding.py.
+                await conn.execute(f.read_text(encoding="utf-8"))
                 await conn.execute(
                     "INSERT INTO schema_migrations (filename) VALUES ($1)", f.name
                 )

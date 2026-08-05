@@ -67,7 +67,7 @@ TEST_DB_URL = os.environ.get(
 
 async def _apply_migrations(conn: asyncpg.Connection) -> None:
     for path in sorted(MIGRATIONS.glob("*.sql")):
-        sql = path.read_text()
+        sql = path.read_text(encoding="utf-8")
         await conn.execute(sql)
 
 

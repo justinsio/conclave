@@ -65,7 +65,7 @@ async def test_migration_020_normalizes_preexisting_rows(db_pool):
         [3.0, 4.0],  # magnitude 5 — deliberately un-normalized
     )
 
-    await db_pool.execute(_MIGRATION.read_text())
+    await db_pool.execute(_MIGRATION.read_text(encoding="utf-8"))
 
     stored = await db_pool.fetchval(
         "SELECT embedding FROM training_corpus WHERE question_text = 'legacy'"
@@ -81,7 +81,7 @@ async def test_migration_020_is_idempotent(db_pool):
            VALUES ('twice', 'a', $1, 'coding', 1.0, 'test')""",
         [3.0, 4.0],
     )
-    sql = _MIGRATION.read_text()
+    sql = _MIGRATION.read_text(encoding="utf-8")
     await db_pool.execute(sql)
     first = await db_pool.fetchval(
         "SELECT embedding FROM training_corpus WHERE question_text = 'twice'"
@@ -103,7 +103,7 @@ async def test_migration_020_leaves_zero_vectors_alone(db_pool):
            VALUES ('zero', 'a', $1, 'coding', 1.0, 'test')""",
         [0.0, 0.0],
     )
-    await db_pool.execute(_MIGRATION.read_text())  # must not raise
+    await db_pool.execute(_MIGRATION.read_text(encoding="utf-8"))  # must not raise
     stored = await db_pool.fetchval(
         "SELECT embedding FROM training_corpus WHERE question_text = 'zero'"
     )
