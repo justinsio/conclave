@@ -160,12 +160,13 @@ async def test_ingest_still_skips_entirely_without_ollama(monkeypatch):
 # ─── Boot floors ──────────────────────────────────────────────────────────────
 
 
-@pytest.mark.parametrize(
-    "field", ["corpus_quarantine_days", "corpus_upvote_threshold"]
-)
+@pytest.mark.parametrize("field", ["corpus_upvote_threshold"])
 def test_zero_is_rejected_at_boot(field):
-    """0 reads as "disabled" to a human but is destructive to the code: it
-    bypasses the quarantine / qualifies every answer on the network.
+    """0 reads as "disabled" to a human but is destructive to the code:
+    `upvote_count >= 0` qualifies every answer on the network.
+
+    corpus_quarantine_days is deliberately NOT in this list — see
+    test_zero_quarantine_is_accepted_at_boot for why it was removed.
 
     NOTE: asserts on the raised error, never on settings.<attr>. Asserting
     directly on a Settings attribute makes pytest's assertion rewriting print
@@ -180,12 +181,52 @@ def test_zero_is_rejected_at_boot(field):
     assert "must be >= 1" in str(exc.value)
 
 
-@pytest.mark.parametrize(
-    "field", ["corpus_quarantine_days", "corpus_upvote_threshold"]
-)
+@pytest.mark.parametrize("field", ["corpus_quarantine_days", "corpus_upvote_threshold"])
 def test_one_is_accepted_at_boot(field):
     """The floor is 1, not 2 — don't over-reject."""
     from app.config import Settings
 
     value = getattr(Settings(**{field: 1}), field)
     assert value == 1
+
+
+def test_zero_quarantine_is_accepted_at_boot():
+    """0 is a supported value for the quarantine, and is the shipped default.
+
+    It was previously rejected alongside corpus_upvote_threshold and
+    post_expiry_ttl_days, on the stated grounds that it "bypasses the
+    correctness quarantine". That grouping was wrong on the facts. The
+    correctness gate is `_promotion_decision` — an independent seed cross-check
+    plus an LLM critique — and it runs at promotion time whatever the wait was.
+    Nothing inspects a staged entry *during* the window: flag propagation
+    invalidates training_corpus rows rather than corpus_staging ones, and
+    ring_check_clean is written TRUE at staging and never set FALSE anywhere in
+    the tree. So a longer wait delays the check without adding one, and 0 skips
+    a delay rather than a control.
+
+    On a private team the useful behaviour is that an answer accepted today is
+    retrievable today; a week-long window is precisely the interval in which a
+    teammate re-asks the question the corpus already holds.
+    """
+    from app.config import Settings
+
+    value = Settings(corpus_quarantine_days=0).corpus_quarantine_days
+    assert value == 0
+
+
+def test_negative_quarantine_is_rejected_at_boot():
+    """Only a negative is nonsense — it dates promote_after into the past."""
+    from pydantic import ValidationError
+    from app.config import Settings
+
+    with pytest.raises(ValidationError) as exc:
+        Settings(corpus_quarantine_days=-1)
+    assert "must be >= 0" in str(exc.value)
+
+
+def test_shipped_default_quarantine_is_zero():
+    """Pins the default itself, not just the accepted range."""
+    from app.config import Settings
+
+    value = Settings().corpus_quarantine_days
+    assert value == 0

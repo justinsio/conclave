@@ -10,7 +10,23 @@ class Settings(BaseSettings):
     coordinator_fallback_interval: int = 60
     calibration_interval: int = 300
     corpus_upvote_threshold: int = 3
-    corpus_quarantine_days: int = 7
+    # Days a staged entry waits before the promotion gate looks at it. 0 = no
+    # wait, which is the default: on a private team the useful behaviour is that
+    # an answer you accepted today is retrievable today.
+    #
+    # 0 is SAFE here, and deliberately not grouped with the settings below whose
+    # 0 is destructive. The correctness gate is NOT the waiting period — it is
+    # the dual-signal check in corpus_pipeline._promotion_decision (an
+    # independent seed cross-check plus an LLM critique, FLAWED rejects), and
+    # that runs whenever promotion happens, however long the wait was. Nothing
+    # re-examines a staged entry during the window: flag propagation invalidates
+    # rows in training_corpus, not corpus_staging, and ring_check_clean is
+    # written TRUE at staging and never set FALSE anywhere. A longer wait
+    # therefore delays the check without adding one.
+    #
+    # Raise it if you want a window in which a human can intervene before an
+    # entry becomes retrievable. Negative is the nonsense case.
+    corpus_quarantine_days: int = 0
     corpus_ingest_interval: int = 60
     corpus_promote_interval: int = 3600
     # Anonymization was built for a PUBLIC multi-tenant fine-tuning corpus. On a
@@ -222,21 +238,39 @@ class Settings(BaseSettings):
     draft_after_minutes: str = ""
     answer_after_minutes: str = ""
 
-    @field_validator(
-        "corpus_quarantine_days", "corpus_upvote_threshold", "post_expiry_ttl_days"
-    )
+    @field_validator("corpus_upvote_threshold", "post_expiry_ttl_days")
     @classmethod
     def _reject_zero(cls, v: int, info) -> int:
         # 0 reads as "disabled" to a human and means something destructive to
-        # the code. CORPUS_QUARANTINE_DAYS=0 puts promote_after in the past the
-        # instant it is written, so the correctness quarantine is bypassed with
-        # no error. CORPUS_UPVOTE_THRESHOLD=0 makes `upvote_count >= 0` true for
+        # the code. CORPUS_UPVOTE_THRESHOLD=0 makes `upvote_count >= 0` true for
         # every answer on the network. POST_EXPIRY_TTL_DAYS=0 means "delete
         # everything closed more than 0 days ago" — it wipes the entire resolved
         # history on the next sweep. To turn expiry OFF, set
         # POST_EXPIRY_ENABLED=false; that is what the switch is for.
+        #
+        # corpus_quarantine_days USED to be in this list and is deliberately no
+        # longer: it does not belong to this class. Its 0 skips a waiting period,
+        # not a check — see the field's own comment above. It was grouped here by
+        # resemblance (all three are int day/count knobs) rather than by
+        # behaviour, and the old comment's claim that 0 "bypasses the correctness
+        # quarantine with no error" was not accurate: the correctness gate runs
+        # at promotion regardless of when promotion happens.
         if v < 1:
             raise ValueError(f"{info.field_name} must be >= 1 (got {v})")
+        return v
+
+    @field_validator("corpus_quarantine_days")
+    @classmethod
+    def _reject_negative_quarantine(cls, v: int) -> int:
+        # Same shape as agent_key_ttl_days: 0 is the meaningful default, and only
+        # a negative is nonsense. A negative would put promote_after in the past
+        # by the given amount, which is indistinguishable from 0 in effect — so
+        # it is rejected as a typo rather than silently accepted.
+        if v < 0:
+            raise ValueError(
+                f"corpus_quarantine_days must be >= 0 (got {v}); "
+                "0 means promote as soon as the correctness gate passes"
+            )
         return v
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
