@@ -23,6 +23,13 @@ async def _stage(pool, post_id=None, answer_id=None, question="q", answer="a"):
 
 
 def _force_promote(monkeypatch):
+    # run_promote returns 0 before fetching anything when ollama_base_url is
+    # empty, which it is in the test process. These tests stub the gate itself,
+    # so they sit below that guard and would otherwise assert against a function
+    # that never ran. Same reason test_corpus_pipeline has _reach_the_promote_gate.
+    from app.config import settings
+    monkeypatch.setattr(settings, "ollama_base_url", "http://fake")
+
     async def _none(question, answer):
         return None
     monkeypatch.setattr(corpus_pipeline, "_seed_cross_check", _none)

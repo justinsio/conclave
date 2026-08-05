@@ -27,6 +27,12 @@ async def test_run_promote_stores_a_normalized_embedding(db_pool, monkeypatch):
     async def _no_critique(question, answer):
         return None
 
+    # Clear run_promote's Ollama guard: it returns 0 before fetching a candidate
+    # when ollama_base_url is empty, which it is in the test process. The stubs
+    # below sit under that guard.
+    from app.config import settings
+    monkeypatch.setattr(settings, "ollama_base_url", "http://fake")
+
     monkeypatch.setattr(corpus_pipeline, "get_embeddings", _fake_embeddings)
     monkeypatch.setattr(corpus_pipeline, "_seed_cross_check", _no_seed_check)
     monkeypatch.setattr(corpus_pipeline, "_critique_answer", _no_critique)
